@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 import { getDealView } from "@/lib/deals";
-import { rupees } from "@/lib/pricing";
+import { rupeesPlain as rupees } from "@/lib/pricing";
 
 // The card reads the deal straight from SQLite, so it must run on Node, not the edge.
 export const runtime = "nodejs";

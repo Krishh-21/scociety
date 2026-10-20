@@ -83,7 +83,7 @@ export function LadderMeter({ deal }: { deal: DealView }) {
       <ul className="flex flex-col gap-1.5">
         {rows.map((s, i) => {
           const active = deal.currentPricePaise === s.pricePaise;
-          const unlocked = deal.flatsJoined >= s.minFlats;
+          const unlocked = deal.basisCount >= s.minFlats;
           return (
             <li
               key={i}
@@ -92,7 +92,11 @@ export function LadderMeter({ deal }: { deal: DealView }) {
               }`}
             >
               <span className={`tnum ${active ? "font-bold text-save-700" : "text-ink-700"}`}>
-                {s.minFlats === 1 ? "1–" + (rows[1] ? rows[1].minFlats - 1 : "∞") : `${s.minFlats}+`}{" "}
+                {s.minFlats === 1
+                  ? rows[1] && rows[1].minFlats > 2
+                    ? `1–${rows[1].minFlats - 1}`
+                    : "1"
+                  : `${s.minFlats}+`}{" "}
                 {deal.basisLabel}
               </span>
               <span className={`tnum font-bold ${active ? "text-save-700" : unlocked ? "text-ink-700" : "text-ink-300"}`}>
@@ -122,9 +126,31 @@ export function StatusPill({ deal }: { deal: DealView }) {
   return <span className={`pill ${cls}`}>{label}</span>;
 }
 
-export function NeighbourStack({ deal }: { deal: DealView }) {
-  const shown = deal.members.slice(0, 5);
+export function NeighbourStack({ deal, compact = false }: { deal: DealView; compact?: boolean }) {
+  const shown = deal.members.slice(0, compact ? 3 : 5);
   if (!shown.length) return <p className="text-sm text-ink-500">Be the first flat to join.</p>;
+  if (compact) {
+    // On a feed card there's a countdown beside this — a name that wraps to
+    // three lines next to it reads as clutter, so the card just counts.
+    return (
+      <div className="flex items-center gap-2 min-w-0">
+        <div className="flex -space-x-2 shrink-0">
+          {shown.map((m) => (
+            <span
+              key={m.id}
+              title={`${m.name} · ${m.flat}`}
+              className="w-7 h-7 rounded-full bg-brand-50 text-brand-700 text-[11px] font-bold grid place-items-center ring-2 ring-surface"
+            >
+              {m.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+            </span>
+          ))}
+        </div>
+        <p className="text-[13px] text-ink-700 truncate">
+          <strong className="tnum">{deal.flatsJoined}</strong> {deal.flatsJoined === 1 ? "flat" : "flats"} in
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-2">
       <div className="flex -space-x-2">
@@ -132,7 +158,7 @@ export function NeighbourStack({ deal }: { deal: DealView }) {
           <span
             key={m.id}
             title={`${m.name} · ${m.flat}`}
-            className="w-8 h-8 rounded-full bg-brand-50 text-brand-700 text-[12px] font-bold grid place-items-center ring-2 ring-white"
+            className="w-8 h-8 rounded-full bg-brand-50 text-brand-700 text-[12px] font-bold grid place-items-center ring-2 ring-surface"
           >
             {m.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
           </span>
@@ -170,8 +196,8 @@ export function DealCard({ deal }: { deal: DealView }) {
         <PriceBlock deal={deal} size="sm" />
       </div>
       <FlatCounter deal={deal} />
-      <div className="flex items-center justify-between mt-3 pt-3 border-t border-line">
-        <NeighbourStack deal={deal} />
+      <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-line">
+        <NeighbourStack deal={deal} compact />
         {deal.status === "open" ? (
           <Countdown to={deal.joinDeadline} />
         ) : (
@@ -255,19 +281,76 @@ export function TabBar({
     { key: "profile", href: "/profile", label: t("nav.profile", "Profile") },
   ] as const;
   return (
-    <nav className="sticky bottom-0 bg-surface border-t border-line grid grid-cols-5 z-20">
-      {items.map((i) => (
-        <Link
-          key={i.key}
-          href={i.href}
-          className={`py-3 text-center text-[12px] font-bold ${
-            active === i.key ? "text-brand-700" : "text-ink-500"
-          }`}
-        >
-          {i.label}
-        </Link>
-      ))}
+    <nav
+      aria-label="Main"
+      className="sticky bottom-0 bg-surface/95 backdrop-blur border-t border-line grid grid-cols-5 z-20"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
+      {items.map((i) => {
+        const on = active === i.key;
+        return (
+          <Link
+            key={i.key}
+            href={i.href}
+            aria-current={on ? "page" : undefined}
+            className={`relative flex flex-col items-center gap-0.5 pt-2.5 pb-2 text-[11px] font-bold ${
+              on ? "text-brand-700" : "text-ink-500"
+            }`}
+          >
+            {on && <span aria-hidden="true" className="absolute top-0 h-0.5 w-8 rounded-full bg-brand-600" />}
+            <TabIcon name={i.key} />
+            {i.label}
+          </Link>
+        );
+      })}
     </nav>
+  );
+}
+
+function TabIcon({ name }: { name: "home" | "explore" | "bookings" | "society" | "profile" }) {
+  const paths: Record<typeof name, React.ReactNode> = {
+    home: <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" />,
+    explore: (
+      <>
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </>
+    ),
+    bookings: (
+      <>
+        <rect x="3" y="4.5" width="18" height="16.5" rx="2" />
+        <path d="M3 9.5h18M8 2.5v4M16 2.5v4" />
+      </>
+    ),
+    society: (
+      <>
+        <path d="M4 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16" />
+        <path d="M14 9h5a1 1 0 0 1 1 1v11M2 21h20M7.5 8h3M7.5 12h3M7.5 16h3" />
+      </>
+    ),
+    profile: (
+      <>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" />
+      </>
+    ),
+  };
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {paths[name]}
+    </svg>
   );
 }
 
@@ -328,14 +411,36 @@ export function SlotLoad({ deal }: { deal: DealView }) {
   );
 }
 
-export function AppHeader({ title, subtitle, right }: { title: string; subtitle?: string; right?: React.ReactNode }) {
+export function AppHeader({
+  title,
+  subtitle,
+  right,
+  back,
+}: {
+  title: string;
+  subtitle?: string;
+  right?: React.ReactNode;
+  /** Where the back chevron goes. Detail screens get one; top-level tabs don't. */
+  back?: { href: string; label?: string };
+}) {
   return (
-    <header className="bg-surface border-b border-line px-4 py-3 flex items-center justify-between sticky top-0 z-20">
-      <div>
-        <h1 className="text-[19px] font-extrabold leading-tight">{title}</h1>
-        {subtitle && <p className="text-[13px] text-ink-500">{subtitle}</p>}
+    <header className="bg-surface/95 backdrop-blur border-b border-line px-4 py-3 flex items-center gap-3 sticky top-0 z-20">
+      {back && (
+        <Link
+          href={back.href}
+          aria-label={back.label ?? "Back"}
+          className="-ml-1.5 w-9 h-9 shrink-0 rounded-full grid place-items-center text-ink-700 hover:bg-canvas-alt"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </Link>
+      )}
+      <div className="min-w-0 flex-1">
+        <h1 className="text-[19px] font-extrabold leading-tight truncate">{title}</h1>
+        {subtitle && <p className="text-[13px] text-ink-500 truncate">{subtitle}</p>}
       </div>
-      {right}
+      {right && <div className="shrink-0">{right}</div>}
     </header>
   );
 }

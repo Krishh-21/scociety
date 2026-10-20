@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS residency (
 
 CREATE TABLE IF NOT EXISTS vendor (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, rating REAL NOT NULL DEFAULT 4.5,
-  jobsDone INTEGER NOT NULL DEFAULT 0, badges TEXT NOT NULL DEFAULT '[]', city TEXT NOT NULL
+  jobsDone INTEGER NOT NULL DEFAULT 0, badges TEXT NOT NULL DEFAULT '[]', city TEXT NOT NULL,
+  -- the services this vendor actually does; a group can only be given to one of them
+  skuIds TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS sku (
@@ -111,7 +113,15 @@ CREATE TABLE IF NOT EXISTS analytics_event (
   props TEXT NOT NULL DEFAULT '{}', createdAt TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS lead (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,              -- society | vendor
+  name TEXT NOT NULL, phone TEXT NOT NULL, org TEXT NOT NULL, city TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL DEFAULT 'new', createdAt TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_notification_user ON notification(userId, readAt);
+CREATE INDEX IF NOT EXISTS idx_lead_kind ON lead(kind, createdAt);
 CREATE INDEX IF NOT EXISTS idx_payment_member ON payment(memberId);
 CREATE INDEX IF NOT EXISTS idx_dispute_status ON dispute(status);
 CREATE INDEX IF NOT EXISTS idx_deal_society ON deal(societyId, status);
@@ -133,12 +143,26 @@ const MIGRATIONS: [table: string, column: string, ddl: string][] = [
   ["sku", "unitsPerSlot", "ALTER TABLE sku ADD COLUMN unitsPerSlot INTEGER NOT NULL DEFAULT 8"],
   ["sku", "repeatMonths", "ALTER TABLE sku ADD COLUMN repeatMonths INTEGER NOT NULL DEFAULT 0"],
   ["user", "lang", "ALTER TABLE user ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'"],
+  ["vendor", "skuIds", "ALTER TABLE vendor ADD COLUMN skuIds TEXT NOT NULL DEFAULT '[]'"],
 ];
+
+/** What each seeded vendor offers — also backfills a database created before skuIds existed. */
+const VENDOR_SKUS: Record<string, string[]> = {
+  ven_coolcare: ["sku_ac_service"],
+  ven_frostline: ["sku_ac_service"],
+  ven_sparkle: ["sku_deep_clean"],
+  ven_tidynest: ["sku_deep_clean"],
+  ven_shinewash: ["sku_car_wash"],
+  ven_greenshield: ["sku_pest"],
+};
 
 function migrate(db: DatabaseSync) {
   for (const [table, column, ddl] of MIGRATIONS) {
     const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
     if (!cols.some((c) => c.name === column)) db.exec(ddl);
+  }
+  for (const [vendorId, skuIds] of Object.entries(VENDOR_SKUS)) {
+    db.prepare("UPDATE vendor SET skuIds = ? WHERE id = ? AND skuIds = '[]'").run(JSON.stringify(skuIds), vendorId);
   }
 }
 
@@ -200,6 +224,29 @@ const NEIGHBOURS: [string, string][] = [
   ["Prakash Jadhav", "C-104"], ["Leena Thomas", "A-704"], ["Siddharth Roy", "B-208"],
 ];
 
+/**
+ * Wipes every row and seeds again. The seed is written relative to "now", so a
+ * demo database a few days old shows every group as closed — this puts it back.
+ */
+export function resetAllData() {
+  const db = getDb();
+  const tables = [
+    "analytics_event", "notification", "payment", "dispute", "job", "deal_event", "comment",
+    "deal_member", "deal", "residency", "user", "sku", "vendor", "society",
+  ];
+  // Sessions are kept: the seeded accounts come back with the same ids, so whoever
+  // pressed reset stays signed in.
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const t of tables) db.exec(`DELETE FROM ${t}`);
+    seed(db);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
 export function seedIfEmpty(db: DatabaseSync) {
   const existing = db.prepare("SELECT COUNT(*) AS n FROM society").get() as { n: number };
   if (existing.n > 0) return;
@@ -218,13 +265,15 @@ export function seed(db: DatabaseSync) {
 
   const vendors = [
     ["ven_coolcare", "CoolCare AC Services", 4.8, 412, ["Verified", "Society-approved", "Assured"]],
+    ["ven_frostline", "FrostLine Aircon", 4.6, 238, ["Verified"]],
     ["ven_sparkle", "SparkleHome Deep Cleaning", 4.7, 286, ["Verified", "Assured"]],
+    ["ven_tidynest", "TidyNest Home Services", 4.4, 131, ["Verified"]],
     ["ven_shinewash", "ShineWash Auto Care", 4.6, 1890, ["Verified", "Society-approved"]],
     ["ven_greenshield", "GreenShield Pest Control", 4.5, 173, ["Verified", "Assured"]],
   ] as const;
   for (const [vid, name, rating, jobs, badges] of vendors) {
-    db.prepare("INSERT INTO vendor (id,name,rating,jobsDone,badges,city) VALUES (?,?,?,?,?,?)")
-      .run(vid, name, rating, jobs, JSON.stringify(badges), "Pune");
+    db.prepare("INSERT INTO vendor (id,name,rating,jobsDone,badges,city,skuIds) VALUES (?,?,?,?,?,?,?)")
+      .run(vid, name, rating, jobs, JSON.stringify(badges), "Pune", JSON.stringify(VENDOR_SKUS[vid] ?? []));
   }
 
   const skus = [

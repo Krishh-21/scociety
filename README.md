@@ -15,10 +15,11 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3127. The SQLite file is created and seeded on first request.
+Open http://localhost:3127 — signed out you get the public landing page; **Find your society**
+signs you in. The SQLite file is created and seeded on first request.
 
 ```bash
-npm test       # 56 tests over the pricing functions, the deal engine and the flows
+npm test       # 72 tests over pricing, the deal engine, the flows and sign-up rules
 npm run seed   # wipes .data/ so the next start reseeds from scratch
 npm run build  # production build
 ```
@@ -44,6 +45,13 @@ somebody else pays, so every mutating action goes through `assertCan` in `lib/au
 
 ## What's built
 
+**Public site** — landing page at `/` for signed-out visitors (hero with a live, draggable price
+ladder built from the real catalogue; how it works; why it's cheaper; services with real prices;
+the four promises; "Bring JODO to your society" form; vendor pitch; FAQ), plus `/partners`
+(vendor application), `/help`, `/privacy`, `/terms`. SEO and install basics: per-page metadata,
+Open Graph cards, `sitemap.xml`, `robots.txt`, a web manifest and an app icon. Set
+`NEXT_PUBLIC_SITE_URL` for absolute URLs in production.
+
 **Resident app** — onboarding + flat verification · society feed (live, pending approval,
 confirmed, repeat reminders) · deal detail with the live price ladder, slot capacity and a
 WhatsApp share card · 3-step join sheet (units → slot → payment) with a real dialog (Escape,
@@ -58,8 +66,10 @@ route sheet with per-flat start and completion OTPs, payouts with the 15% commis
 
 **Ops console** (`/ops`) — GMV, commission, fill rate, refunds, open issues, view→join funnel,
 deals-at-risk queue, committee approvals, the issues queue (refund / revisit / no action), every
-deal with lock / close-without-charge / start-service-day, and demo controls that add real
-neighbour joins so you can watch the ladder move (ops only, development only).
+deal with lock / close-without-charge / start-service-day, website sign-ups (society requests
+and vendor applications) with contacted / won / lost, an audit trail, and demo controls — add
+neighbour joins, or reset all demo data when the seed's relative dates have gone stale (ops only,
+development only).
 
 ## The engine (`lib/`)
 
@@ -96,12 +106,14 @@ instance, set `JODO_DISABLE_TICKER=1` and point a scheduler at `POST /api/cron/t
 6. The ladder counts what the vendor's trip actually scales with — flats for deep cleaning, units
    for AC service and car washes (`sku.ladderBasis`).
 7. A group is private to its society: reading or joining one from another society is refused.
+   A flat already verified by a neighbour can't be claimed by somebody else.
 8. A slot can never be over-booked past one crew's capacity for that window.
 9. A group that nearly made it gets exactly one automatic 48-hour extension, then expires.
 10. Money is authorised on join, captured only at lock, released on expiry, refunded on a
     resolved issue — every step written to the `payment` ledger.
+11. A group can only be given to a vendor who offers that service.
 
-`npm test` holds all of these (56 tests).
+`npm test` holds all of these (72 tests).
 
 ## Where the work stands
 

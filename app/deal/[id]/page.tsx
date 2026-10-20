@@ -2,19 +2,19 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { getDealView, myJob, queueAhead, tickDeal } from "@/lib/deals";
-import { formatDate, rupees } from "@/lib/pricing";
+import { formatDate, rupees, timeAgo } from "@/lib/pricing";
 import { getMe } from "@/lib/session";
 import { can } from "@/lib/authz";
 import { getDb } from "@/lib/db";
-import { track } from "@/lib/analytics";
 import { shareText } from "@/lib/share";
 import { translator } from "@/lib/i18n";
 import {
   AppHeader, FailSafeNote, FlatCounter, LadderMeter, NeighbourStack, Phone,
-  PriceBlock, ScopeList, SlotLoad, StatusPill, TabBar, VendorCard,
+  PriceBlock, ScopeList, SlotLoad, StatusPill, VendorCard,
 } from "@/components/ui";
 import Countdown from "@/components/Countdown";
 import AutoRefresh from "@/components/AutoRefresh";
+import TrackView from "@/components/TrackView";
 import JoinSheet from "@/components/JoinSheet";
 import { ApproveDealForm, CommentForm, DisputeForm, QuickReplies, RateForm, ShareButton } from "@/components/forms";
 
@@ -47,25 +47,20 @@ export default async function DealPage({
   const canApprove = deal.status === "pending" && can(me, { kind: "deal.approve", dealId: id });
   const myUnits = deal.joinedByMe?.units ?? 1;
 
-  const host = (await headers()).get("host") ?? "";
-  const origin = host ? `http://${host}` : "";
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  const origin = host ? `${proto}://${host}` : "";
   const share = shareText(deal, origin);
-
-  track(me.user.id, "deal_view", { dealId: deal.id, status: deal.status, price: deal.currentPricePaise });
 
   return (
     <Phone>
+      <TrackView name="deal_view" props={{ dealId: deal.id, status: deal.status }} />
       <AppHeader
+        back={{ href: "/", label: t("common.back", "Back") }}
         title={deal.sku.name}
         subtitle={`${deal.society.name} · ${formatDate(deal.serviceDate)}`}
-        right={
-          <div className="flex items-center gap-2">
-            {deal.status === "open" && <AutoRefresh intervalMs={30_000} />}
-            <Link href="/" className="pill bg-canvas-alt text-ink-700">
-              {t("common.back", "Back")}
-            </Link>
-          </div>
-        }
+        right={deal.status === "open" ? <AutoRefresh intervalMs={30_000} /> : undefined}
       />
 
       <div className="flex-1 px-4 py-4 flex flex-col gap-3">
@@ -103,11 +98,10 @@ export default async function DealPage({
           </div>
           {deal.status === "open" && (
             <>
-              <div className="flex items-center justify-between mt-3">
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
                 <Countdown to={deal.joinDeadline} prefix={`${t("deal.closesIn", "Closes in")} `} />
                 <span className="text-[12px] text-ink-500">
-                  {deal.unitsJoined} {deal.sku.unitLabel}
-                  {deal.unitsJoined === 1 ? "" : "s"} · {deal.vendor.name}
+                  Service {formatDate(deal.serviceDate)} · {deal.vendor.name}
                 </span>
               </div>
               {deal.extendedAt && (
@@ -235,7 +229,7 @@ export default async function DealPage({
             {deal.comments.map((c) => (
               <li key={c.id}>
                 <p className="text-[13px] font-bold">
-                  {c.name} <span className="text-ink-300 font-medium">· {c.flat}</span>
+                  {c.name} <span className="text-ink-300 font-medium">· {c.flat} · {timeAgo(c.at)}</span>
                 </p>
                 <p className="text-sm text-ink-700">{c.body}</p>
               </li>
@@ -244,7 +238,7 @@ export default async function DealPage({
           </ul>
           <div className="flex flex-col gap-2">
             <CommentForm dealId={deal.id} />
-            <QuickReplies dealId={deal.id} />
+            <QuickReplies dealId={deal.id} skuId={deal.skuId} joined={!!deal.joinedByMe} />
           </div>
         </section>
 
@@ -280,7 +274,6 @@ export default async function DealPage({
           share: t("deal.share", "Share to WhatsApp"),
         }}
       />
-      <TabBar active="home" t={t} />
     </Phone>
   );
 }

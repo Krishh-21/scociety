@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { listSkus, listVendors } from "@/lib/deals";
 import { getMe } from "@/lib/session";
-import { AppHeader, Phone, TabBar } from "@/components/ui";
+import { AppHeader, Phone } from "@/components/ui";
 import CreateForm from "./CreateForm";
 
 export const dynamic = "force-dynamic";
@@ -14,11 +14,10 @@ export default async function CreatePage({ searchParams }: { searchParams: Promi
 
   return (
     <Phone>
-      <AppHeader title="Start a group" subtitle={me.residency.societyName} />
+      <AppHeader back={{ href: "/" }} title="Start a group" subtitle={me.residency.societyName} />
       <div className="flex-1 px-4 py-4">
         <CreateForm skus={listSkus()} vendors={listVendors()} preselect={sku} />
       </div>
-      <TabBar active="home" />
     </Phone>
   );
 }

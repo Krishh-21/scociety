@@ -64,6 +64,8 @@ export type Vendor = {
   jobsDone: number;
   badges: string[];
   city: string;
+  /** The services this vendor does. A group can only be given to a vendor that offers its service. */
+  skuIds: string[];
 };
 
 export type Deal = {

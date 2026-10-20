@@ -38,6 +38,7 @@ export type Action =
   | { kind: "dispute.resolve" }
   | { kind: "job.complete"; jobId: string }
   | { kind: "job.rate"; jobId: string }
+  | { kind: "demo.reset" }
   | { kind: "console.ops" }
   | { kind: "console.vendor" };
 
@@ -92,7 +93,8 @@ export function can(me: Me, action: Action): boolean {
     }
 
     case "deal.simulate":
-      // A demo control: ops only, and never in a production deployment.
+    case "demo.reset":
+      // Demo controls: ops only, and never in a production deployment.
       return isOps(me) && process.env.NODE_ENV !== "production";
 
     case "job.complete": {
@@ -122,6 +124,7 @@ const MESSAGES: Record<string, string> = {
   "deal.start_service": "Only the vendor or JODO ops can start a service day.",
   "deal.update_slabs": "Only the vendor who published this ladder can change it.",
   "deal.simulate": "Demo controls are available to JODO ops in development only.",
+  "demo.reset": "Demo controls are available to JODO ops in development only.",
   "job.complete": "Only the vendor on this job can close it.",
   "job.rate": "You can only rate your own job.",
   "job.start": "Only the vendor on this job can start it.",

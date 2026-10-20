@@ -2,18 +2,20 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { id, one, run } from "@/lib/db";
+import { one, resetAllData, run } from "@/lib/db";
 import {
-  DealError, addComment, approveDeal, completeJob, createDeal, expireDeal, joinDeal,
-  leaveDeal, lockDeal, raiseDispute, rateJob, resolveDispute, simulateJoins, startJob,
+  DealError, addComment, approveDeal, clearCatalogueCache, completeJob, createDeal, expireDeal,
+  joinDeal, leaveDeal, lockDeal, raiseDispute, rateJob, resolveDispute, simulateJoins, startJob,
   startService, updateSlabs,
 } from "@/lib/deals";
 import { markAllRead } from "@/lib/notify";
 import { track } from "@/lib/analytics";
 import { isLang } from "@/lib/i18n";
+import { LeadError, createLead, markLead } from "@/lib/leads";
 import { assertCan, ForbiddenError } from "@/lib/authz";
 import {
-  createSession, destroySession, findOrCreateUser, otpAttemptAllowed, otpAttemptsReset, requireMe,
+  ResidencyError, claimResidency, createSession, destroySession, findOrCreateUser, isValidPhone,
+  otpAttemptAllowed, otpAttemptsReset, requireMe,
 } from "@/lib/session";
 import type { Slab } from "@/lib/types";
 
@@ -22,7 +24,9 @@ export type ActionState = { error?: string; ok?: string };
 const DEV_OTP = "1234";
 
 function fail(e: unknown): ActionState {
-  if (e instanceof DealError || e instanceof ForbiddenError) return { error: e.message };
+  if (e instanceof DealError || e instanceof ForbiddenError || e instanceof ResidencyError || e instanceof LeadError) {
+    return { error: e.message };
+  }
   if (e instanceof Error && e.message === "UNAUTHENTICATED") return { error: "Please sign in again." };
   console.error(e);
   return { error: "Something went wrong. Try again." };
@@ -33,6 +37,8 @@ function fail(e: unknown): ActionState {
 export async function verifyOtp(_prev: ActionState, form: FormData): Promise<ActionState> {
   const phone = String(form.get("phone") ?? "").replace(/\D/g, "");
   const otp = String(form.get("otp") ?? "").trim();
+  // Without this a blank number and the right code signed in as a user with no phone.
+  if (!isValidPhone(phone)) return { error: "Enter a 10-digit mobile number." };
   if (!otpAttemptAllowed(phone)) {
     return { error: "Too many attempts. Try again in a few minutes." };
   }
@@ -54,20 +60,13 @@ export async function signOut() {
 export async function saveResidency(_prev: ActionState, form: FormData): Promise<ActionState> {
   try {
     const me = await requireMe();
-    const name = String(form.get("name") ?? "").trim();
-    const societyId = String(form.get("societyId") ?? "");
-    const flat = String(form.get("flat") ?? "").trim().toUpperCase();
-    const type = String(form.get("type") ?? "owner") === "tenant" ? "tenant" : "owner";
-    if (name.length < 2) return { error: "Tell your neighbours your name." };
-    if (!societyId) return { error: "Pick your society." };
-    if (!/^[A-Z]{1,2}-\d{3,4}$/.test(flat)) return { error: "Flat should look like A-402." };
-
-    run("UPDATE user SET name = ? WHERE id = ?", name, me.user.id);
-    run("DELETE FROM residency WHERE userId = ?", me.user.id);
-    run(
-      "INSERT INTO residency (id,userId,societyId,flat,type,status,verifiedVia,createdAt) VALUES (?,?,?,?,?,?,?,?)",
-      id("res"), me.user.id, societyId, flat, type, "verified", "neighbour_vouch", new Date().toISOString(),
-    );
+    claimResidency({
+      userId: me.user.id,
+      name: String(form.get("name") ?? ""),
+      societyId: String(form.get("societyId") ?? ""),
+      flat: String(form.get("flat") ?? ""),
+      type: String(form.get("type") ?? "owner") === "tenant" ? "tenant" : "owner",
+    });
   } catch (e) {
     return fail(e);
   }
@@ -159,6 +158,19 @@ export async function simulateAction(_prev: ActionState, form: FormData): Promis
     revalidatePath("/");
     revalidatePath("/ops");
     return { ok: `${added} neighbour${added === 1 ? "" : "s"} joined` };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function resetDemoAction(_prev: ActionState): Promise<ActionState> {
+  try {
+    const me = await requireMe();
+    assertCan(me, { kind: "demo.reset" });
+    resetAllData();
+    clearCatalogueCache();
+    revalidatePath("/", "layout");
+    return { ok: "Demo data reset — every group is back where the seed starts it" };
   } catch (e) {
     return fail(e);
   }
@@ -319,6 +331,67 @@ export async function resolveDisputeAction(_prev: ActionState, form: FormData): 
     revalidatePath("/ops");
     revalidatePath("/bookings");
     return { ok: "Issue closed" };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+// ------------------------------------------------------- public sign-ups
+
+/** "Bring JODO to my society" — no account needed; ops calls the secretary. */
+export async function submitSocietyLead(_prev: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const flats = Number(form.get("flats") ?? 0);
+    const { duplicate } = createLead({
+      kind: "society",
+      name: form.get("name"),
+      phone: form.get("phone"),
+      org: form.get("society"),
+      city: form.get("city"),
+      detail: {
+        role: String(form.get("role") ?? "resident").slice(0, 20),
+        flats: Number.isFinite(flats) && flats > 0 ? Math.min(flats, 5000) : null,
+      },
+    });
+    track(null, "lead_society", { duplicate });
+    revalidatePath("/ops");
+    return { ok: duplicate ? "We already have your request — we'll call you soon." : "Thanks — we'll call you within two working days." };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+/** Vendor partner application. */
+export async function submitVendorLead(_prev: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const services = form.getAll("services").map((v) => String(v).slice(0, 40)).slice(0, 8);
+    if (!services.length) return { error: "Pick at least one service you offer." };
+    const crew = Number(form.get("crew") ?? 0);
+    const { duplicate } = createLead({
+      kind: "vendor",
+      name: form.get("name"),
+      phone: form.get("phone"),
+      org: form.get("business"),
+      city: form.get("city"),
+      detail: { services, crew: Number.isFinite(crew) && crew > 0 ? Math.min(crew, 500) : null },
+    });
+    track(null, "lead_vendor", { duplicate, services });
+    revalidatePath("/ops");
+    return { ok: duplicate ? "We already have your application — we'll be in touch." : "Application received — our supply team will call you within two working days." };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+export async function markLeadAction(_prev: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const me = await requireMe();
+    assertCan(me, { kind: "console.ops" });
+    const status = String(form.get("status"));
+    if (status !== "contacted" && status !== "won" && status !== "lost") return { error: "Unknown status." };
+    markLead(String(form.get("leadId")), status);
+    revalidatePath("/ops");
+    return { ok: status };
   } catch (e) {
     return fail(e);
   }

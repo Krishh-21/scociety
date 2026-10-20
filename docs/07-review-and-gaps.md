@@ -52,6 +52,34 @@ Severity: **P0** = breaks a money/trust promise · **P1** = security or privacy 
 Still open: #23 (copy nits), #25 is done but coverage can go deeper, #29 (logging), #31 (Postgres
 seam), and the P5 integrations listed above.
 
+## Second pass — 21 Oct 2026
+
+A fresh read of every file plus a walk through every screen at phone width turned up these, all
+fixed on `improve/ux-and-flow-fixes`:
+
+| Area | Finding | Fix |
+|---|---|---|
+| Sign-in | A blank or short phone number plus the code signed in as a user with no phone | `isValidPhone` — ten digits starting 6–9 |
+| Onboarding | Anyone could claim a flat a neighbour already held, or a society that didn't exist | `claimResidency` refuses both; "a402", "A 402", "A/402" all become "A-402" |
+| Create | Every vendor was offered for every service, and the default never changed — a car-wash group went to the AC vendor | `vendor.skuIds`; the form offers only vendors who do the service and the server refuses the rest |
+| Create | "flats" wording on AC and car-wash groups; past dates selectable; date picked in UTC | Basis-aware labels, `min` date, local date |
+| Feed | Groups past their deadline showed as "Filling · Closed" until the background ticker ran | `feed`, `opsBoard`, `vendorDeals` close due deals before reading |
+| Ladder | Rows lit up by flat count on unit-based deals; ops "Lock now" checked flats too | Both use `basisCount` |
+| Analytics | `deal_view` fired on every 30-second auto-refresh | Tracked once per visit from the client |
+| Deal page | The tab bar sat hidden under the Join bar | Detail screens get a back-chevron header and no tab bar |
+| Styling | Component classes were unlayered, so every utility on them lost: tinted cards rendered white, small buttons stayed 48 px | Moved into `@layer components` |
+| Theme | The light/dark choice only applied on the Profile page | Applied before first paint from the root layout |
+| Dark mode | White rings around avatars | `ring-surface` |
+| Share | "Share to WhatsApp" opened a generic share sheet or copied silently | A real `wa.me` link plus a Copy button |
+| Comments | An AC question and "I am in." appeared on every group, joined or not | Service-aware, join-aware quick replies; comments show their age |
+| Vendor console | The resident's codes were printed in the vendor's input placeholder | Shown only in development |
+| Share images | The OG renderer has no ₹ glyph | "Rs" in generated images |
+| Demo | Seed dates are relative, so a few days later every group looked closed | "Reset demo data" in ops (development only) |
+
+Also added: a public landing page, `/partners`, `/help`, `/privacy`, `/terms`, society and vendor
+sign-up forms feeding an ops table, tab-bar icons, metadata, sitemap, robots, manifest, app icon
+and Open Graph cards. Tests: 72.
+
 Everything below this line is the original review, kept as written.
 
 ---

@@ -3,8 +3,8 @@
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  approveDealAction, commentAction, completeJobAction, expireAction, lockAction,
-  raiseDisputeAction, rateAction, resolveDisputeAction, setLanguage, simulateAction,
+  approveDealAction, commentAction, completeJobAction, expireAction, lockAction, markLeadAction,
+  raiseDisputeAction, rateAction, resetDemoAction, resolveDisputeAction, setLanguage, simulateAction,
   startJobAction, startServiceAction, updateSlabsAction, type ActionState,
 } from "@/app/actions";
 import type { DealView } from "@/lib/types";
@@ -49,11 +49,26 @@ export function CommentForm({ dealId }: { dealId: string }) {
   );
 }
 
-export function QuickReplies({ dealId }: { dealId: string }) {
-  const [, action, pending] = useActionState(commentAction, empty);
-  const replies = ["I am in.", "Can we do Sunday instead?", "Does this cover the outdoor unit?"];
+// One question per service that neighbours actually ask, instead of an AC
+// question showing up on a pest-control group.
+const SERVICE_QUESTION: Record<string, string> = {
+  sku_ac_service: "Does this cover the outdoor unit?",
+  sku_deep_clean: "Do they bring their own supplies?",
+  sku_car_wash: "Do they need water from our tap?",
+  sku_pest: "Is it safe with kids and pets at home?",
+};
+
+export function QuickReplies({ dealId, skuId, joined }: { dealId: string; skuId: string; joined: boolean }) {
+  const [state, action, pending] = useActionState(commentAction, empty);
+  useRefreshOnOk(state);
+  // "I'm in" only means something once you actually are.
+  const replies = [
+    joined ? "I'm in — who else?" : "Thinking about it — which slot are most people picking?",
+    "Can we do a different day?",
+    SERVICE_QUESTION[skuId] ?? "What's not included?",
+  ];
   return (
-    <div className="flex gap-2 flex-wrap">
+    <div className="flex gap-2 flex-wrap" aria-busy={pending}>
       {replies.map((r) => (
         <form action={action} key={r}>
           <input type="hidden" name="dealId" value={dealId} />
@@ -96,7 +111,7 @@ export function OpsDealActions({ deal }: { deal: DealView }) {
         <>
           <form action={lock}>
             <input type="hidden" name="dealId" value={deal.id} />
-            <button className="btn btn-save h-9 min-h-9 text-[13px]" disabled={locking || deal.flatsJoined < deal.mvs}>
+            <button className="btn btn-save h-9 min-h-9 text-[13px]" disabled={locking || deal.basisCount < deal.mvs}>
               Lock now
             </button>
           </form>
@@ -125,7 +140,8 @@ export function OpsDealActions({ deal }: { deal: DealView }) {
   );
 }
 
-export function CompleteJobForm({ jobId, endOtp }: { jobId: string; endOtp: string }) {
+/** `hint` is the resident's code, shown only in development so the demo can be driven alone. */
+export function CompleteJobForm({ jobId, hint }: { jobId: string; hint?: string }) {
   const [state, action, pending] = useActionState(completeJobAction, empty);
   useRefreshOnOk(state);
   return (
@@ -133,7 +149,7 @@ export function CompleteJobForm({ jobId, endOtp }: { jobId: string; endOtp: stri
       <input type="hidden" name="jobId" value={jobId} />
       <input
         name="otp"
-        placeholder={`OTP (${endOtp})`}
+        placeholder={hint ? `Code (${hint})` : "Resident's code"}
         className="card px-3 py-2 text-sm w-32 tnum"
         aria-label="Completion OTP from the resident"
       />
@@ -229,7 +245,7 @@ export function ApproveDealForm({ dealId }: { dealId: string }) {
   );
 }
 
-export function StartJobForm({ jobId, startOtp }: { jobId: string; startOtp: string }) {
+export function StartJobForm({ jobId, hint }: { jobId: string; hint?: string }) {
   const [state, action, pending] = useActionState(startJobAction, empty);
   useRefreshOnOk(state);
   return (
@@ -237,7 +253,7 @@ export function StartJobForm({ jobId, startOtp }: { jobId: string; startOtp: str
       <input type="hidden" name="jobId" value={jobId} />
       <input
         name="otp"
-        placeholder={`Start code (${startOtp})`}
+        placeholder={hint ? `Start code (${hint})` : "Start code"}
         className="card px-3 py-2 text-sm w-40 tnum"
         aria-label="Start code from the resident"
       />
@@ -320,15 +336,15 @@ export function ResolveDisputeForm({ disputeId }: { disputeId: string }) {
   );
 }
 
+/**
+ * Groups spread in the society WhatsApp group, so WhatsApp is the primary
+ * button (a wa.me link opens the app with the text ready) and copying is the
+ * fallback for every other group chat.
+ */
 export function ShareButton({ text, label = "Share to WhatsApp" }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
-  async function share() {
-    const data = { title: "JODO", text };
+  async function copy() {
     try {
-      if (navigator.share) {
-        await navigator.share(data);
-        return;
-      }
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
@@ -337,9 +353,22 @@ export function ShareButton({ text, label = "Share to WhatsApp" }: { text: strin
     }
   }
   return (
-    <button className="btn btn-quiet w-full" onClick={share}>
-      {copied ? "Copied — paste it in your society group" : label}
-    </button>
+    <div className="flex gap-2">
+      <a
+        href={`https://wa.me/?text=${encodeURIComponent(text)}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="btn btn-whatsapp flex-1"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.1-1.2l-.4-.3Z" />
+        </svg>
+        {label}
+      </a>
+      <button type="button" className="btn btn-quiet" onClick={copy} aria-live="polite">
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
   );
 }
 
@@ -358,6 +387,54 @@ export function LanguageToggle({ current }: { current: "en" | "hi" }) {
           className={`pill ${current === code ? "bg-brand-600 text-white" : "bg-canvas-alt text-ink-700"}`}
         >
           {label}
+        </button>
+      ))}
+    </form>
+  );
+}
+
+export function ResetDemoButton() {
+  const [state, action, pending] = useActionState(resetDemoAction, empty);
+  const [armed, setArmed] = useState(false);
+  useRefreshOnOk(state);
+  return (
+    <form action={action} aria-busy={pending} className="flex flex-col gap-1.5">
+      {armed ? (
+        <div className="flex gap-2">
+          <button className="btn btn-primary h-9 min-h-9 text-[13px]" disabled={pending}>
+            {pending ? "Resetting…" : "Yes, reset everything"}
+          </button>
+          <button type="button" className="btn btn-quiet h-9 min-h-9 text-[13px]" onClick={() => setArmed(false)}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button type="button" className="btn btn-quiet h-9 min-h-9 text-[13px]" onClick={() => setArmed(true)}>
+          Reset demo data
+        </button>
+      )}
+      {state.ok && <p className="text-[12px] text-save-700">{state.ok}</p>}
+      {state.error && <p className="text-[12px] text-danger-600">{state.error}</p>}
+    </form>
+  );
+}
+
+export function LeadStatusForm({ leadId, status }: { leadId: string; status: string }) {
+  const [state, action, pending] = useActionState(markLeadAction, empty);
+  useRefreshOnOk(state);
+  return (
+    <form action={action} aria-busy={pending} className="flex gap-1.5 flex-wrap">
+      <input type="hidden" name="leadId" value={leadId} />
+      {(["contacted", "won", "lost"] as const).map((s) => (
+        <button
+          key={s}
+          name="status"
+          value={s}
+          disabled={pending || status === s}
+          aria-pressed={status === s}
+          className={`pill capitalize ${status === s ? "bg-brand-600 text-white" : "bg-canvas-alt text-ink-700"}`}
+        >
+          {s}
         </button>
       ))}
     </form>

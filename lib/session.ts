@@ -90,6 +90,56 @@ export function findOrCreateUser(phone: string, name?: string): User {
   return one<User>("SELECT * FROM user WHERE id = ?", uid)!;
 }
 
+export class ResidencyError extends Error {}
+
+/** Indian mobile numbers: ten digits, starting 6–9. */
+export function isValidPhone(phone: string): boolean {
+  return /^[6-9]\d{9}$/.test(phone);
+}
+
+/** "a402", "A 402", "A/402" and "A-402" are the same flat. */
+export function normaliseFlat(raw: string): string | null {
+  const m = raw.trim().toUpperCase().replace(/\s+/g, "").match(/^([A-Z]{1,2})[-/]?(\d{3,4})$/);
+  return m ? `${m[1]}-${m[2]}` : null;
+}
+
+/**
+ * Puts a user in a flat. A flat already held by a verified neighbour can't be
+ * claimed by somebody else — otherwise anyone could join groups, read
+ * neighbours' names and pay as "A-402".
+ */
+export function claimResidency(args: {
+  userId: string; name: string; societyId: string; flat: string; type: "owner" | "tenant";
+}) {
+  const name = args.name.trim().replace(/\s+/g, " ");
+  if (name.length < 2) throw new ResidencyError("Tell your neighbours your name.");
+  if (name.length > 60) throw new ResidencyError("That name is a little long.");
+
+  const society = one<{ id: string; name: string }>("SELECT id, name FROM society WHERE id = ?", args.societyId);
+  if (!society) throw new ResidencyError("Pick your society.");
+
+  const flat = normaliseFlat(args.flat);
+  if (!flat) throw new ResidencyError("Flat should look like A-402.");
+
+  const taken = one<{ userId: string }>(
+    "SELECT userId FROM residency WHERE societyId = ? AND flat = ? AND status = 'verified' AND userId <> ?",
+    society.id, flat, args.userId,
+  );
+  if (taken) {
+    throw new ResidencyError(
+      `${flat} is already verified in ${society.name}. If you live there too, ask them to add you from their profile.`,
+    );
+  }
+
+  run("UPDATE user SET name = ? WHERE id = ?", name, args.userId);
+  run("DELETE FROM residency WHERE userId = ?", args.userId);
+  run(
+    "INSERT INTO residency (id,userId,societyId,flat,type,status,verifiedVia,createdAt) VALUES (?,?,?,?,?,?,?,?)",
+    id("res"), args.userId, society.id, flat, args.type, "verified", "neighbour_vouch", new Date().toISOString(),
+  );
+  return { flat, societyName: society.name };
+}
+
 export function societies() {
   return all<{ id: string; name: string; locality: string; city: string; flatCount: number; residents: number }>(
     `SELECT s.*, (SELECT COUNT(*) FROM residency r WHERE r.societyId = s.id AND r.status='verified') AS residents

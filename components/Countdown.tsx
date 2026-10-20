@@ -14,7 +14,7 @@ export default function Countdown({ to, prefix = "Closes in " }: { to: string; p
 
   const urgent = ms > 0 && ms < 24 * 3_600_000;
   return (
-    <span className={`pill tnum ${urgent ? "bg-warn-50 text-warn-600" : "bg-canvas-alt text-ink-500"}`}>
+    <span className={`pill tnum whitespace-nowrap ${urgent ? "bg-warn-50 text-warn-600" : "bg-canvas-alt text-ink-500"}`}>
       {ms <= 0 ? "Closed" : prefix + countdown(ms)}
     </span>
   );

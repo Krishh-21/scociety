@@ -7,12 +7,14 @@ import { unreadCount } from "@/lib/notify";
 import { translator } from "@/lib/i18n";
 import { AppHeader, DealCard, NotificationBell, Phone, TabBar } from "@/components/ui";
 import AutoRefresh from "@/components/AutoRefresh";
+import Landing from "@/components/Landing";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const me = await getMe();
-  if (!me) redirect("/login");
+  // Signed out, "/" is the public landing page; signed in, it's your society.
+  if (!me) return <Landing />;
   if (me.user.role === "vendor") redirect("/vendor");
   if (me.user.role === "ops") redirect("/ops");
   if (!me.residency) redirect("/onboarding");
@@ -55,7 +57,10 @@ export default async function HomePage() {
           </Link>
         )}
 
-        <section className="card p-4 bg-brand-50 border-brand-500/20">
+        <Link
+          href={live[0] ? `/deal/${live[0].id}` : "/create"}
+          className="card p-4 bg-brand-50 border-brand-500/20 block hover:shadow-md transition-shadow"
+        >
           <p className="eyebrow text-brand-700 mb-1">{t("feed.announcement", "Society announcement")}</p>
           <h2 className="text-[19px] font-extrabold text-brand-700 leading-snug">
             {live[0] ? live[0].sku.name : "Start the first group in your society"}
@@ -69,7 +74,8 @@ export default async function HomePage() {
                 }`
               : "Pick a service, set a date, and share it in your society WhatsApp group."}
           </p>
-        </section>
+          <p className="text-[13px] font-bold text-brand-700 mt-2">{live[0] ? "See the group →" : "Start a group →"}</p>
+        </Link>
 
         {pending.length > 0 && (
           <>

@@ -6,7 +6,11 @@ import { countdown, formatDate, rupees } from "@/lib/pricing";
 import { getMe } from "@/lib/session";
 import { can } from "@/lib/authz";
 import ConsoleGate from "@/components/ConsoleGate";
-import { ApproveDealForm, OpsDealActions, ResolveDisputeForm, SimulateJoins } from "@/components/forms";
+import {
+  ApproveDealForm, LeadStatusForm, OpsDealActions, ResetDemoButton, ResolveDisputeForm, SimulateJoins,
+} from "@/components/forms";
+import { listLeads } from "@/lib/leads";
+import { timeAgo } from "@/lib/pricing";
 import { StatusPill } from "@/components/ui";
 import { signOut } from "@/app/actions";
 
@@ -23,6 +27,8 @@ export default async function OpsPage() {
   const openIssues = disputes.filter((d) => d.status === "open");
   const f = funnel();
   const events = recentEvents(15);
+  const leads = listLeads(30);
+  const demo = process.env.NODE_ENV !== "production";
   const open = deals.filter((d) => d.status === "open");
   const medianFlats = (() => {
     const closed = deals.filter((d) => ["locked", "in_progress", "completed"].includes(d.status));
@@ -188,6 +194,64 @@ export default async function OpsPage() {
         </section>
 
         <section className="card p-4">
+          <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
+            <h2 className="font-extrabold">Sign-ups from the website</h2>
+            <p className="text-[12px] text-ink-500">
+              {leads.filter((l) => l.kind === "society").length} societies ·{" "}
+              {leads.filter((l) => l.kind === "vendor").length} vendors
+            </p>
+          </div>
+          {leads.length === 0 ? (
+            <p className="text-sm text-ink-500">
+              Nothing yet. Requests from “Bring JODO to your society” and the partner form land here.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[640px]">
+                <thead>
+                  <tr className="text-left text-[12px] text-ink-500">
+                    <th className="py-1 font-semibold">Kind</th>
+                    <th className="font-semibold">Who</th>
+                    <th className="font-semibold">Society / business</th>
+                    <th className="font-semibold">Detail</th>
+                    <th className="font-semibold">When</th>
+                    <th className="font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leads.map((l) => (
+                    <tr key={l.id} className="border-t border-line align-top">
+                      <td className="py-2">
+                        <span className={`pill ${l.kind === "society" ? "bg-brand-50 text-brand-700" : "bg-save-50 text-save-700"}`}>
+                          {l.kind}
+                        </span>
+                      </td>
+                      <td className="py-2">
+                        <p className="font-bold">{l.name}</p>
+                        <p className="text-[12px] text-ink-500 tnum">{l.phone}</p>
+                      </td>
+                      <td className="py-2">
+                        {l.org}
+                        <p className="text-[12px] text-ink-500">{l.city}</p>
+                      </td>
+                      <td className="py-2 text-[12px] text-ink-700">
+                        {l.kind === "society"
+                          ? `${String(l.detail.role ?? "resident")}${l.detail.flats ? ` · ${l.detail.flats} flats` : ""}`
+                          : `${(l.detail.services as string[] | undefined)?.join(", ") ?? ""}${l.detail.crew ? ` · crew ${l.detail.crew}` : ""}`}
+                      </td>
+                      <td className="py-2 text-[12px] text-ink-500 whitespace-nowrap">{timeAgo(l.createdAt)}</td>
+                      <td className="py-2">
+                        <LeadStatusForm leadId={l.id} status={l.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        <section className="card p-4">
           <h2 className="font-extrabold mb-2">Audit trail</h2>
           <p className="text-sm text-ink-500 mb-3">
             Every state change, append-only. This is what settles an argument about what a group was
@@ -211,7 +275,10 @@ export default async function OpsPage() {
         </section>
 
         <section className="card p-4">
-          <h2 className="font-extrabold mb-2">Demo controls</h2>
+          <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
+            <h2 className="font-extrabold">Demo controls</h2>
+            {demo && <ResetDemoButton />}
+          </div>
           <p className="text-sm text-ink-500 mb-3">
             These write real rows — joins go through the same transaction and pricing rules as a resident tapping Join.
           </p>

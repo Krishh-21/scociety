@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { getMe } from "@/lib/session";
 import { listNotifications, unreadCount } from "@/lib/notify";
 import { markNotificationsRead } from "@/app/actions";
-import { AppHeader, Phone, TabBar } from "@/components/ui";
+import { timeAgo } from "@/lib/pricing";
+import { AppHeader, Phone } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -22,14 +23,6 @@ const ICONS: Record<string, string> = {
   repeat_due: "↻",
 };
 
-function ago(iso: string) {
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
-}
 
 export default async function NotificationsPage() {
   const me = await getMe();
@@ -40,6 +33,7 @@ export default async function NotificationsPage() {
   return (
     <Phone>
       <AppHeader
+        back={{ href: "/" }}
         title="Notifications"
         subtitle={unread ? `${unread} unread` : "You're up to date"}
         right={
@@ -78,7 +72,7 @@ export default async function NotificationsPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold">{n.title}</p>
                 <p className="text-[13px] text-ink-700">{n.body}</p>
-                <p className="text-[11px] text-ink-300 mt-0.5">{ago(n.createdAt)}</p>
+                <p className="text-[11px] text-ink-300 mt-0.5">{timeAgo(n.createdAt)}</p>
               </div>
               {!n.readAt && <span className="w-2 h-2 rounded-full bg-brand-600 mt-2" aria-label="Unread" />}
             </>
@@ -95,7 +89,6 @@ export default async function NotificationsPage() {
         })}
         <div className="h-4" />
       </div>
-      <TabBar active="home" />
     </Phone>
   );
 }

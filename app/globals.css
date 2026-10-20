@@ -74,106 +74,130 @@
   --color-danger-600: #ff7a9c;
 }
 
-html,
-body {
-  background: var(--color-canvas);
-  color: var(--color-ink-900);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+/*
+ * Everything below lives in a cascade layer on purpose. Unlayered CSS beats every
+ * Tailwind utility, so `card bg-save-50` used to render as a plain white card and
+ * `btn min-h-10` couldn't shrink. In @layer components, utilities win as intended.
+ */
+@layer base {
+  html,
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+    font-size: 15px;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-brand-600);
+    outline-offset: 2px;
+  }
 }
 
-.tnum {
-  font-variant-numeric: tabular-nums;
-}
+@layer components {
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
 
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-card);
-}
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+  }
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 48px;
-  padding: 0 20px;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 15px;
-  cursor: pointer;
-  transition: filter 140ms ease, opacity 140ms ease;
-}
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.btn-primary {
-  background: var(--color-brand-600);
-  color: #fff;
-}
-.btn-primary:hover:not(:disabled) {
-  filter: brightness(1.07);
-}
-.btn-save {
-  background: var(--color-save-600);
-  color: #fff;
-}
-.btn-save:hover:not(:disabled) {
-  filter: brightness(1.07);
-}
-.btn-quiet {
-  background: var(--color-canvas-alt);
-  color: var(--color-ink-700);
-}
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 48px;
+    padding: 0 20px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    transition: filter 140ms ease, opacity 140ms ease, background-color 140ms ease;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--color-brand-600);
+    color: #fff;
+  }
+  .btn-save {
+    background: var(--color-save-600);
+    color: #fff;
+  }
+  .btn-whatsapp {
+    background: #1fa855;
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled),
+  .btn-save:hover:not(:disabled),
+  .btn-whatsapp:hover {
+    filter: brightness(1.07);
+  }
+  .btn-quiet {
+    background: var(--color-canvas-alt);
+    color: var(--color-ink-700);
+  }
+  .btn-quiet:hover:not(:disabled) {
+    background: var(--color-line);
+  }
 
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
 
-.eyebrow {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-ink-500);
-}
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-500);
+  }
 
-input,
-select,
-textarea {
-  font-family: inherit;
-  font-size: 15px;
+  /* A dark band that stays dark in both themes (the ink tokens flip in dark mode). */
+  .band-dark {
+    background: #0c1420;
+    color: #fff;
+  }
+  :root[data-theme="dark"] .band-dark {
+    background: #05080d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .band-dark {
+      background: #05080d;
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
   * {
     transition: none !important;
     animation: none !important;
   }
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-:focus-visible {
-  outline: 3px solid var(--color-brand-600);
-  outline-offset: 2px;
 }

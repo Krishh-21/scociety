@@ -12,6 +12,10 @@ import { signOut } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
+// In a real deployment the crew gets the code from the resident at the door; the
+// hint exists so one person can drive the whole demo from one browser.
+const DEMO = process.env.NODE_ENV !== "production";
+
 export default async function VendorPage() {
   const me = await getMe();
   if (!me) redirect("/login");
@@ -149,10 +153,10 @@ export default async function VendorPage() {
                           </td>
                           <td className="text-right">
                             {d.status === "in_progress" && j.status === "en_route" && (
-                              <StartJobForm jobId={j.id} startOtp={j.startOtp} />
+                              <StartJobForm jobId={j.id} hint={DEMO ? j.startOtp : undefined} />
                             )}
                             {d.status === "in_progress" && j.status === "in_progress" && (
-                              <CompleteJobForm jobId={j.id} endOtp={j.endOtp} />
+                              <CompleteJobForm jobId={j.id} hint={DEMO ? j.endOtp : undefined} />
                             )}
                             {d.status === "in_progress" && j.status === "scheduled" && (
                               <span className="text-[12px] text-ink-300">waiting for the earlier slot</span>

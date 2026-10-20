@@ -45,6 +45,14 @@ export function rupees(paise: number): string {
   return "₹" + Math.round(paise / 100).toLocaleString("en-IN");
 }
 
+/**
+ * For generated images: the OG renderer's built-in font has no ₹ glyph and tries
+ * to download one at build time, so share cards would show an empty box.
+ */
+export function rupeesPlain(paise: number): string {
+  return "Rs " + Math.round(paise / 100).toLocaleString("en-IN");
+}
+
 export function validateSlabs(listPricePaise: number, slabs: Slab[]): string | null {
   if (!slabs.length) return "A deal needs at least one slab.";
   const sorted = [...slabs].sort((a, b) => a.minFlats - b.minFlats);
@@ -98,6 +106,16 @@ export function countdown(ms: number): string {
   if (d > 0) return `${d}d ${h}h`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+export function timeAgo(iso: string, now = Date.now()): string {
+  const mins = Math.round((now - new Date(iso).getTime()) / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  return days < 30 ? `${days}d ago` : formatDate(iso);
 }
 
 export function formatDate(iso: string): string {

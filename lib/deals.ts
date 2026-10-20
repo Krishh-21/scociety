@@ -8,7 +8,7 @@ import type { Deal, DealMember, DealView, Slab, Sku, Society, Vendor } from "./t
 
 type DealRow = Omit<Deal, "slabs" | "slotWindows"> & { slabs: string; slotWindows: string };
 type SkuRow = Omit<Sku, "included" | "excluded"> & { included: string; excluded: string; defaultSlabs: string };
-type VendorRow = Omit<Vendor, "badges"> & { badges: string };
+type VendorRow = Omit<Vendor, "badges" | "skuIds"> & { badges: string; skuIds: string };
 
 const now = () => new Date().toISOString();
 const DAY = 86_400_000;
@@ -18,7 +18,7 @@ export function parseSku(r: SkuRow): Sku & { defaultSlabs: Slab[] } {
   return { ...r, included: JSON.parse(r.included), excluded: JSON.parse(r.excluded), defaultSlabs: JSON.parse(r.defaultSlabs) };
 }
 function parseVendor(r: VendorRow): Vendor {
-  return { ...r, badges: JSON.parse(r.badges) };
+  return { ...r, badges: JSON.parse(r.badges), skuIds: JSON.parse(r.skuIds ?? "[]") };
 }
 function parseDeal(r: DealRow): Deal {
   return { ...r, slabs: JSON.parse(r.slabs), slotWindows: JSON.parse(r.slotWindows) };
@@ -68,6 +68,11 @@ export function listSkus() {
 }
 export function listVendors() {
   return all<VendorRow>("SELECT * FROM vendor ORDER BY rating DESC").map(parseVendor);
+}
+
+/** Vendors who actually do this service, best-rated first. */
+export function vendorsForSku(skuId: string) {
+  return listVendors().filter((v) => v.skuIds.includes(skuId));
 }
 export function getSociety(societyId: string) {
   return one<Society>("SELECT * FROM society WHERE id = ?", societyId);
@@ -141,6 +146,7 @@ export function getDealView(dealId: string, viewerId?: string): DealView | null 
 
 export function feed(societyId: string, viewerId?: string) {
   ensureTicker();
+  tick();
   const rows = all<{ id: string }>(
     `SELECT id FROM deal WHERE societyId = ? ORDER BY
        CASE status WHEN 'open' THEN 0 WHEN 'pending' THEN 0 WHEN 'locked' THEN 1 WHEN 'in_progress' THEN 1 ELSE 2 END,
@@ -365,6 +371,12 @@ export function createDeal(args: {
 
   const society = one<Society>("SELECT * FROM society WHERE id = ?", args.societyId);
   if (!society) throw new DealError("Unknown society.");
+
+  const vendor = one<VendorRow>("SELECT * FROM vendor WHERE id = ?", args.vendorId);
+  if (!vendor) throw new DealError("Pick a vendor.");
+  if (!parseVendor(vendor).skuIds.includes(args.skuId)) {
+    throw new DealError(`${vendor.name} doesn't offer ${parsed.name}. Pick one of the vendors listed for it.`);
+  }
 
   const target = Math.max(2, Math.min(100, args.targetFlats));
   const mvs = Math.min(target, parsed.mvsDefault);
@@ -773,6 +785,7 @@ export function openDisputes() {
 
 export function vendorDeals(vendorId: string) {
   ensureTicker();
+  tick();
   const rows = all<{ id: string }>("SELECT id FROM deal WHERE vendorId = ? ORDER BY serviceDate DESC", vendorId);
   return rows.map((r) => getDealView(r.id)!);
 }
@@ -809,6 +822,7 @@ export function updateSlabs(dealId: string, slabs: Slab[]) {
 
 export function opsBoard() {
   ensureTicker();
+  tick();
   const rows = all<{ id: string }>("SELECT id FROM deal ORDER BY createdAt DESC");
   const deals = rows.map((r) => getDealView(r.id)!);
   const gmv = deals

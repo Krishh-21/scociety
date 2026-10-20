@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
+import { Logo } from "@/components/marketing";
 import { verifyOtp, type ActionState } from "@/app/actions";
 
 const DEMO = [
@@ -18,7 +20,9 @@ export default function LoginPage() {
     <main className="min-h-screen bg-canvas-alt flex justify-center">
       <div className="w-full max-w-[460px] bg-canvas min-h-screen border-x border-line px-5 py-10 flex flex-col">
         <div className="mb-8">
-          <p className="eyebrow mb-2">JODO</p>
+          <Link href="/" aria-label="JODO home" className="inline-block mb-6">
+            <Logo />
+          </Link>
           <h1 className="text-[30px] font-extrabold leading-tight mb-2">
             Your building books together. Everyone pays less.
           </h1>
@@ -51,7 +55,11 @@ export default function LoginPage() {
           <button className="btn btn-primary mt-2" disabled={pending}>
             {pending ? "Signing in…" : "Continue"}
           </button>
-          {state.error && <p className="text-[13px] text-danger-600">{state.error}</p>}
+          {state.error && (
+            <p role="alert" className="text-[13px] text-danger-600">
+              {state.error}
+            </p>
+          )}
         </form>
 
         <p className="eyebrow mt-8 mb-2">Try an account</p>
@@ -69,6 +77,13 @@ export default function LoginPage() {
             </button>
           ))}
         </div>
+        <p className="text-[13px] text-ink-500 mt-8 text-center">
+          New here? <Link href="/" className="font-bold text-brand-700">See how JODO works</Link>
+        </p>
+        <p className="text-[12px] text-ink-500 mt-3 text-center">
+          By continuing you agree to the <Link href="/terms" className="underline">terms</Link> and{" "}
+          <Link href="/privacy" className="underline">privacy policy</Link>.
+        </p>
       </div>
     </main>
   );
