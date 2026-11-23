@@ -76,9 +76,18 @@ describe("claiming a flat", () => {
 
   it("lets the same person re-claim their own flat", () => {
     const u = findOrCreateUser("9876500003");
+    const original = one<{ id: string }>("SELECT id FROM residency WHERE userId = ?", u.id);
     expect(() =>
       claimResidency({ userId: u.id, name: "Asha Rao", societyId: GREEN, flat: "C-909", type: "owner" }),
     ).not.toThrow();
+    expect(one("SELECT id FROM residency WHERE userId = ?", u.id)).toEqual(original);
+  });
+
+  it("prevents a verified secretary from transferring committee access through onboarding", () => {
+    expect(() => claimResidency({
+      userId: "usr_kulkarni", name: "Amit Kulkarni", societyId: "soc_palm_grove", flat: "Z-902", type: "owner",
+    })).toThrow(/already verified/i);
+    expect(one("SELECT societyId FROM residency WHERE userId = 'usr_kulkarni'")).toEqual({ societyId: GREEN });
   });
 });
 

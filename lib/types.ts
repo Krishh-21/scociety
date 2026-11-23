@@ -9,6 +9,32 @@ export type DealStatus =
 
 export type Slab = { minFlats: number; pricePaise: number };
 
+export type JobStatus = "scheduled" | "en_route" | "in_progress" | "completed";
+
+export type RevisitVisit = {
+  id: string;
+  disputeId: string;
+  dealId: string;
+  memberId: string;
+  vendorId: string;
+  vendorName: string;
+  residentId: string;
+  residentName: string;
+  serviceName: string;
+  societyName: string;
+  flat: string;
+  reason: string;
+  detail: string;
+  instructions: string;
+  status: "awaiting_schedule" | "scheduled" | "in_progress" | "completed";
+  serviceDate: string | null;
+  slot: string;
+  technician: string;
+  startOtp: string;
+  endOtp: string;
+  finishedAt: string | null;
+};
+
 export type Society = {
   id: string;
   name: string;
@@ -22,7 +48,7 @@ export type User = {
   id: string;
   phone: string;
   name: string;
-  role: "resident" | "secretary" | "vendor" | "ops";
+  role: "resident" | "secretary" | "vendor" | "ops" | "guard";
   vendorId: string | null;
   lang: "en" | "hi";
 };

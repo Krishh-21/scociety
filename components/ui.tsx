@@ -119,7 +119,7 @@ export function StatusPill({ deal }: { deal: DealView }) {
     locked: ["bg-save-50 text-save-700", "Confirmed"],
     in_progress: ["bg-warn-50 text-warn-600", "Service in progress"],
     completed: ["bg-canvas-alt text-ink-700", "Completed"],
-    expired: ["bg-canvas-alt text-ink-500", "Didn't fill"],
+    expired: ["bg-canvas-alt text-ink-500", deal.basisCount < deal.mvs ? "Didn't fill" : "Closed"],
     cancelled: ["bg-danger-50 text-danger-600", "Cancelled"],
   };
   const [cls, label] = map[deal.status] ?? ["bg-canvas-alt text-ink-500", deal.status];

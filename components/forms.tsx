@@ -176,6 +176,7 @@ export function RateForm({ jobId, current }: { jobId: string; current: number | 
           key={n}
           onClick={() => setScore(n)}
           aria-label={`${n} out of 5`}
+          aria-pressed={n === score}
           className={`w-9 h-9 rounded-full font-bold text-sm ${
             n <= score ? "bg-save-600 text-white" : "bg-canvas-alt text-ink-500"
           }`}
@@ -185,8 +186,9 @@ export function RateForm({ jobId, current }: { jobId: string; current: number | 
       ))}
       <input name="note" placeholder="Anything to add?" className="card px-3 py-2 text-sm flex-1 min-w-[140px]" />
       <button className="btn btn-quiet h-9 min-h-9 text-[13px]" disabled={pending || !score}>
-        Submit
+        {pending ? "Saving…" : "Save rating"}
       </button>
+      {state.error && <p role="alert" className="w-full text-[12px] text-danger-600">{state.error}</p>}
     </form>
   );
 }
@@ -322,16 +324,17 @@ export function ResolveDisputeForm({ disputeId }: { disputeId: string }) {
   return (
     <form action={action} className="flex flex-wrap gap-2 items-center" aria-busy={pending}>
       <input type="hidden" name="disputeId" value={disputeId} />
-      <select name="resolution" className="card px-2 py-1.5 text-sm" aria-label="Outcome">
+      <select name="resolution" className="card max-w-full px-2 py-1.5 text-sm" aria-label="Outcome">
         <option value="refund">Refund in full</option>
-        <option value="revisit">Vendor revisits</option>
+        <option value="revisit">Approve revisit (vendor schedules)</option>
         <option value="rejected">No action</option>
       </select>
       <input name="note" placeholder="What you told them" className="card px-2 py-1.5 text-sm flex-1 min-w-[160px]" />
       <button className="btn btn-primary h-9 min-h-9 text-[13px]" disabled={pending}>
-        {pending ? "…" : "Close issue"}
+        {pending ? "Saving…" : "Save outcome"}
       </button>
-      {state.error && <span className="text-[12px] text-danger-600">{state.error}</span>}
+      {state.error && <span role="alert" className="text-[12px] text-danger-600">{state.error}</span>}
+      {state.ok && <span role="status" className="text-[12px] text-save-700">{state.ok}</span>}
     </form>
   );
 }

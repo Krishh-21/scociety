@@ -19,7 +19,7 @@ Open http://localhost:3127 — signed out you get the public landing page; **Fin
 signs you in. The SQLite file is created and seeded on first request.
 
 ```bash
-npm test       # 72 tests over pricing, the deal engine, the flows and sign-up rules
+npm test       # pricing, booking, sign-in and society workflows
 npm run seed   # wipes .data/ so the next start reseeds from scratch
 npm run build  # production build
 ```
@@ -35,13 +35,22 @@ No SMS is sent; **the OTP is always `1234`.** Seeded accounts:
 | `9000000001` | Rahul Mehta, A-402 | Resident app |
 | `9000000002` | Amit Kulkarni, secretary | Resident app + committee tools |
 | `9000000010` | Suresh, CoolCare AC | Vendor console |
+| `9000000098` | Green Valley Gate | Guard console |
 | `9000000099` | JODO Ops | Ops console |
 
 Any other 10-digit number creates a new resident and runs the onboarding flow.
 
-The consoles are not open to everyone: a resident who opens `/ops` or `/vendor` is told which
-account to use instead. Locking a group, re-pricing a ladder and closing a job all change what
-somebody else pays, so every mutating action goes through `assertCan` in `lib/authz.ts`.
+The consoles are scoped by role. Booking actions use `assertCan` in `lib/authz.ts`. Society
+actions check the user’s verified residency or guard assignment before reading or changing
+records.
+
+Open **Society** to report complaints, read committee notices, attend meetings, vote, reserve
+amenities, approve visitors, or check maintenance bills. A secretary can assign complaints,
+publish community updates, manage guard access, issue bills, and record collections and expenses
+from the committee dashboard. Guards use their own assigned visitor log.
+
+Maintenance payments and reported bank balances are entered by the committee. The app sends
+society alerts through its notification centre. Sign-ins still use the demo OTP described above.
 
 ## What's built
 
@@ -113,7 +122,7 @@ instance, set `JODO_DISABLE_TICKER=1` and point a scheduler at `POST /api/cron/t
     resolved issue — every step written to the `payment` ledger.
 11. A group can only be given to a vendor who offers that service.
 
-`npm test` holds all of these (72 tests).
+`npm test` covers these booking rules and the society workflows.
 
 ## Where the work stands
 

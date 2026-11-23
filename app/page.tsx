@@ -5,6 +5,7 @@ import { formatDate, rupees } from "@/lib/pricing";
 import { getMe } from "@/lib/session";
 import { unreadCount } from "@/lib/notify";
 import { translator } from "@/lib/i18n";
+import { getPinnedNotice } from "@/lib/society-community";
 import { AppHeader, DealCard, NotificationBell, Phone, TabBar } from "@/components/ui";
 import AutoRefresh from "@/components/AutoRefresh";
 import Landing from "@/components/Landing";
@@ -17,6 +18,7 @@ export default async function HomePage() {
   if (!me) return <Landing />;
   if (me.user.role === "vendor") redirect("/vendor");
   if (me.user.role === "ops") redirect("/ops");
+  if (me.user.role === "guard") redirect("/society/visitors");
   if (!me.residency) redirect("/onboarding");
 
   const t = translator(me.user.lang);
@@ -25,6 +27,7 @@ export default async function HomePage() {
   const repeats = repeatSuggestions(me.residency.societyId);
   const suggestions = listSkus().filter((s) => !live.some((d) => d.skuId === s.id)).slice(0, 3);
   const unread = unreadCount(me.user.id);
+  const pinned = me.residency.status === "verified" ? getPinnedNotice(me.residency.societyId) : null;
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? t("feed.goodMorning", "Good morning")
@@ -57,11 +60,22 @@ export default async function HomePage() {
           </Link>
         )}
 
-        <Link
+        {pinned && (
+          <section className="card p-4 bg-brand-50 border-brand-500/20">
+            <p className="eyebrow text-brand-700 mb-1">{t("feed.announcement", "Society announcement")}</p>
+            <h2 className="text-[19px] font-extrabold text-brand-700 leading-snug">{pinned.title}</h2>
+            <p className="text-[13px] text-ink-700 mt-1 line-clamp-3 whitespace-pre-line break-words">{pinned.body}</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-[13px] font-bold text-brand-700">
+              <Link href={`/society/community#notice-${pinned.id}`}>Read notice <span aria-hidden="true">›</span></Link>
+              {pinned.dealId && <Link href={`/deal/${pinned.dealId}`}>View group booking <span aria-hidden="true">›</span></Link>}
+            </div>
+          </section>
+        )}
+        {!pinned && <Link
           href={live[0] ? `/deal/${live[0].id}` : "/create"}
           className="card p-4 bg-brand-50 border-brand-500/20 block hover:shadow-md transition-shadow"
         >
-          <p className="eyebrow text-brand-700 mb-1">{t("feed.announcement", "Society announcement")}</p>
+          {live[0] && <p className="eyebrow text-brand-700 mb-1">Featured group</p>}
           <h2 className="text-[19px] font-extrabold text-brand-700 leading-snug">
             {live[0] ? live[0].sku.name : "Start the first group in your society"}
           </h2>
@@ -75,7 +89,7 @@ export default async function HomePage() {
               : "Pick a service, set a date, and share it in your society WhatsApp group."}
           </p>
           <p className="text-[13px] font-bold text-brand-700 mt-2">{live[0] ? "See the group →" : "Start a group →"}</p>
-        </Link>
+        </Link>}
 
         {pending.length > 0 && (
           <>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { openDisputes, opsBoard, recentEvents } from "@/lib/deals";
+import { openDisputes, opsBoard, recentEvents, revisitsForOps } from "@/lib/deals";
+import { formatRevisitDate } from "@/lib/revisits";
 import { funnel } from "@/lib/analytics";
 import { countdown, formatDate, rupees } from "@/lib/pricing";
 import { getMe } from "@/lib/session";
@@ -16,6 +17,13 @@ import { signOut } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
+const revisitStatusLabels = {
+  awaiting_schedule: "Awaiting scheduling",
+  scheduled: "Scheduled",
+  in_progress: "In progress",
+  completed: "Completed",
+};
+
 export default async function OpsPage() {
   const me = await getMe();
   if (!me) redirect("/login");
@@ -25,10 +33,11 @@ export default async function OpsPage() {
   const { deals, atRisk, pending, gmvPaise, commissionPaise, refundsPaise, fillRate } = opsBoard();
   const disputes = openDisputes();
   const openIssues = disputes.filter((d) => d.status === "open");
+  const revisits = revisitsForOps().filter((visit) => visit.status !== "completed");
   const f = funnel();
   const events = recentEvents(15);
   const leads = listLeads(30);
-  const demo = process.env.NODE_ENV !== "production";
+  const demo = can(me, { kind: "demo.reset" });
   const open = deals.filter((d) => d.status === "open");
   const medianFlats = (() => {
     const closed = deals.filter((d) => ["locked", "in_progress", "completed"].includes(d.status));
@@ -39,12 +48,12 @@ export default async function OpsPage() {
 
   return (
     <main className="min-h-screen bg-canvas">
-      <header className="bg-surface border-b border-line px-6 py-4 flex items-center justify-between">
+      <header className="bg-surface border-b border-line px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="eyebrow">JODO ops console</p>
           <h1 className="text-[22px] font-extrabold">Deals board</h1>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center">
           <Link href="/" className="btn btn-quiet h-10 min-h-10 text-[13px]">
             Resident app
           </Link>
@@ -83,15 +92,10 @@ export default async function OpsPage() {
               {atRisk.map((d) => (
                 <div key={d.id} className="flex flex-wrap items-center gap-3 justify-between">
                   <p className="text-sm">
-                    <strong>{d.sku.name}</strong> · {d.society.name} · {d.flatsJoined}/{d.mvs} flats ·{" "}
+                    <strong>{d.sku.name}</strong> · {d.society.name} · {d.basisCount}/{d.mvs} {d.basisLabel} ·{" "}
                     {countdown(d.msToDeadline)} left
                   </p>
-                  <div className="flex gap-2 items-center">
-                    <div className="w-56">
-                      <SimulateJoins dealId={d.id} label="Nudge 3 neighbours" />
-                    </div>
-                    <OpsDealActions deal={d} />
-                  </div>
+                  <OpsDealActions deal={d} />
                 </div>
               ))}
             </div>
@@ -144,16 +148,53 @@ export default async function OpsPage() {
           </section>
         )}
 
+        <section className="card p-4" aria-labelledby="revisit-follow-ups-heading">
+          <h2 id="revisit-follow-ups-heading" className="font-extrabold mb-3">Revisit follow-ups</h2>
+          {revisits.length === 0 ? (
+            <p className="text-sm text-ink-500">No outstanding revisits.</p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {revisits.map((visit) => (
+                <li key={visit.id} className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3 first:border-0 first:pt-0">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-bold">{visit.serviceName} · {visit.societyName}</p>
+                      <span className={`pill ${visit.status === "awaiting_schedule" ? "bg-warn-50 text-warn-600" : "bg-brand-50 text-brand-700"}`}>
+                        {revisitStatusLabels[visit.status]}
+                      </span>
+                    </div>
+                    <p className="text-[13px] text-ink-500">{visit.residentName} ({visit.flat}) · {visit.vendorName}</p>
+                    {visit.serviceDate && (
+                      <p className="text-[13px] text-ink-700">
+                        <time dateTime={visit.serviceDate}>{formatRevisitDate(visit.serviceDate)}</time>
+                        {visit.slot && ` · ${visit.slot}`}
+                        {visit.technician && ` · ${visit.technician}`}
+                      </p>
+                    )}
+                  </div>
+                  <Link
+                    href={`/vendor?vendor=${encodeURIComponent(visit.vendorId)}#revisit-${encodeURIComponent(visit.id)}`}
+                    className="btn btn-quiet h-10 min-h-10 text-[13px]"
+                    aria-label={`Open route sheet for ${visit.residentName} at ${visit.societyName}, ${visit.flat}`}
+                  >
+                    Open route sheet
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         <section>
-          <h2 className="font-extrabold text-[18px] mb-3">All deals</h2>
-          <div className="card overflow-hidden">
-            <table className="w-full text-sm">
+          <h2 id="all-deals-heading" className="font-extrabold text-[18px] mb-3">All deals</h2>
+          <div className="card overflow-x-auto" role="region" aria-labelledby="all-deals-heading" tabIndex={0}>
+            <table className="w-full min-w-[780px] text-sm">
               <thead className="bg-canvas-alt">
                 <tr className="text-left text-[12px] text-ink-500">
                   <th className="px-4 py-2 font-semibold">Deal</th>
                   <th className="font-semibold">Society</th>
                   <th className="font-semibold">Service date</th>
-                  <th className="font-semibold">Flats</th>
+                  <th className="font-semibold">Bookings</th>
                   <th className="font-semibold">Price</th>
                   <th className="font-semibold">Deadline</th>
                   <th className="font-semibold">Status</th>
@@ -172,8 +213,9 @@ export default async function OpsPage() {
                     <td>{d.society.name}</td>
                     <td className="tnum">{formatDate(d.serviceDate)}</td>
                     <td className="tnum">
-                      {d.flatsJoined}
+                      {d.basisCount}
                       <span className="text-ink-300">/{d.targetFlats}</span>
+                      {` ${d.basisLabel}`}
                       <span className="text-[11px] text-ink-500"> (min {d.mvs})</span>
                     </td>
                     <td className="tnum font-bold text-save-700">{rupees(d.currentPricePaise)}</td>
@@ -184,7 +226,18 @@ export default async function OpsPage() {
                       <StatusPill deal={d} />
                     </td>
                     <td className="px-4 py-3">
-                      <OpsDealActions deal={d} />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <OpsDealActions deal={d} />
+                        {(d.status === "locked" || d.status === "in_progress") && (
+                          <Link
+                            href={`/vendor?vendor=${encodeURIComponent(d.vendorId)}#deal-${encodeURIComponent(d.id)}`}
+                            className="btn btn-quiet h-10 min-h-10 text-[13px] whitespace-nowrap"
+                            aria-label={`Open route sheet for ${d.sku.name} at ${d.society.name}`}
+                          >
+                            Open route sheet
+                          </Link>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -274,27 +327,29 @@ export default async function OpsPage() {
           </ul>
         </section>
 
-        <section className="card p-4">
-          <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
-            <h2 className="font-extrabold">Demo controls</h2>
-            {demo && <ResetDemoButton />}
-          </div>
-          <p className="text-sm text-ink-500 mb-3">
-            These write real rows — joins go through the same transaction and pricing rules as a resident tapping Join.
-          </p>
-          <div className="grid md:grid-cols-3 gap-3">
-            {open.map((d) => (
-              <div key={d.id} className="card p-3">
-                <p className="text-sm font-bold mb-1">{d.sku.name}</p>
-                <p className="text-[12px] text-ink-500 mb-2">
-                  {d.flatsJoined} flats · {rupees(d.currentPricePaise)}
-                  {d.nextSlab && ` · ${d.nextSlab.away} more → ${rupees(d.nextSlab.pricePaise)}`}
-                </p>
-                <SimulateJoins dealId={d.id} />
-              </div>
-            ))}
-          </div>
-        </section>
+        {demo && (
+          <section className="card p-4">
+            <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
+              <h2 className="font-extrabold">Demo controls</h2>
+              <ResetDemoButton />
+            </div>
+            <p className="text-sm text-ink-500 mb-3">
+              Simulated joins apply the same pricing rules as resident bookings.
+            </p>
+            <div className="grid md:grid-cols-3 gap-3">
+              {open.map((d) => (
+                <div key={d.id} className="card p-3">
+                  <p className="text-sm font-bold mb-1">{d.sku.name}</p>
+                  <p className="text-[12px] text-ink-500 mb-2">
+                    {d.basisCount} {d.basisLabel} · {rupees(d.currentPricePaise)}
+                    {d.nextSlab && ` · ${d.nextSlab.away} more → ${rupees(d.nextSlab.pricePaise)}`}
+                  </p>
+                  <SimulateJoins dealId={d.id} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         <div className="h-6" />
       </div>
     </main>

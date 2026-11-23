@@ -1,13 +1,14 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { jobsForDeal, vendorDeals } from "@/lib/deals";
+import { notFound, redirect } from "next/navigation";
+import { jobsForDeal, listVendors, revisitsForVendor, vendorDeals } from "@/lib/deals";
 import { commission, formatDate, rupees } from "@/lib/pricing";
+import { formatRevisitDate, isRevisitDue, revisitToday } from "@/lib/revisits";
 import { getMe } from "@/lib/session";
 import { can } from "@/lib/authz";
 import ConsoleGate from "@/components/ConsoleGate";
-import { one } from "@/lib/db";
 import { CompleteJobForm, OpsDealActions, SlabEditor, StartJobForm } from "@/components/forms";
 import Countdown from "@/components/Countdown";
+import RevisitScheduleForm from "@/components/RevisitScheduleForm";
 import { signOut } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
@@ -16,16 +17,31 @@ export const dynamic = "force-dynamic";
 // hint exists so one person can drive the whole demo from one browser.
 const DEMO = process.env.NODE_ENV !== "production";
 
-export default async function VendorPage() {
+const REVISIT_STATUS = {
+  awaiting_schedule: "Awaiting scheduling",
+  scheduled: "Scheduled",
+  in_progress: "In progress",
+  completed: "Completed",
+};
+
+export default async function VendorPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ vendor?: string | string[] }>;
+}) {
   const me = await getMe();
   if (!me) redirect("/login");
   if (!can(me, { kind: "console.vendor" })) {
     return <ConsoleGate console="vendor" phone="9000000010" you={me.user.name} />;
   }
-  // Ops can look at any vendor's day; a vendor only ever sees their own.
-  const vendorId = me.user.vendorId ?? "ven_coolcare";
-  const vendor = one<{ name: string; rating: number; jobsDone: number }>("SELECT * FROM vendor WHERE id = ?", vendorId)!;
-  const deals = vendorDeals(vendorId);
+  const isOps = can(me, { kind: "console.ops" });
+  const requestedVendor = isOps ? (await searchParams).vendor : me.user.vendorId;
+  const vendors = listVendors().sort((a, b) => a.name.localeCompare(b.name));
+  const vendor = vendors.find((v) => v.id === requestedVendor) ?? (isOps ? vendors[0] : undefined);
+  if (!vendor) notFound();
+  const deals = vendorDeals(vendor.id);
+  const revisits = revisitsForVendor(vendor.id);
+  const earliestRevisitDate = revisitToday();
 
   const open = deals.filter((d) => d.status === "open");
   const confirmed = deals.filter((d) => d.status === "locked" || d.status === "in_progress");
@@ -39,7 +55,7 @@ export default async function VendorPage() {
 
   return (
     <main className="min-h-screen bg-canvas">
-      <header className="bg-surface border-b border-line px-6 py-4 flex items-center justify-between">
+      <header className="bg-surface border-b border-line px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="eyebrow">Vendor console</p>
           <h1 className="text-[22px] font-extrabold">{vendor.name}</h1>
@@ -47,7 +63,12 @@ export default async function VendorPage() {
             ★ {vendor.rating} · {vendor.jobsDone.toLocaleString("en-IN")} jobs done
           </p>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center">
+          {isOps && (
+            <Link href="/ops" className="btn btn-quiet h-10 min-h-10 text-[13px]">
+              Ops deals board
+            </Link>
+          )}
           <Link href="/" className="btn btn-quiet h-10 min-h-10 text-[13px]">
             Resident app
           </Link>
@@ -58,6 +79,17 @@ export default async function VendorPage() {
       </header>
 
       <div className="max-w-[1100px] mx-auto px-6 py-6 flex flex-col gap-6">
+        {isOps && (
+          <form action="/vendor" method="get" className="card p-4 flex flex-wrap items-end gap-3">
+            <div className="w-full sm:w-64">
+              <label htmlFor="vendor-select" className="block text-sm font-bold mb-1">Vendor</label>
+              <select id="vendor-select" name="vendor" defaultValue={vendor.id} className="card h-10 w-full px-3 text-sm">
+                {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            </div>
+            <button className="btn btn-primary h-10 min-h-10 text-[13px]" type="submit">Open vendor</button>
+          </form>
+        )}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
             ["Groups filling", String(open.length)],
@@ -111,8 +143,8 @@ export default async function VendorPage() {
             {confirmed.map((d) => {
               const jobs = jobsForDeal(d.id);
               return (
-                <article key={d.id} className="card p-4">
-                  <div className="flex items-start justify-between mb-3">
+                <article key={d.id} id={`deal-${d.id}`} tabIndex={-1} className="card p-4 scroll-mt-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                     <div>
                       <p className="font-bold">
                         {d.sku.name} · {d.society.name}
@@ -124,52 +156,136 @@ export default async function VendorPage() {
                     </div>
                     <OpsDealActions deal={d} />
                   </div>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-ink-500 text-left text-[12px]">
-                        <th className="py-1 font-semibold">Flat</th>
-                        <th className="font-semibold">Resident</th>
-                        <th className="font-semibold">Slot</th>
-                        <th className="font-semibold">Technician</th>
-                        <th className="font-semibold">Status</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {jobs.map((j) => (
-                        <tr key={j.id} className="border-t border-line">
-                          <td className="py-2 font-bold tnum">{j.flat}</td>
-                          <td>{j.name}</td>
-                          <td className="tnum">{j.slot}</td>
-                          <td>{j.technician}</td>
-                          <td>
-                            <span
-                              className={`pill ${
-                                j.status === "completed" ? "bg-save-50 text-save-700" : "bg-canvas-alt text-ink-700"
-                              }`}
-                            >
-                              {j.status.replace("_", " ")}
-                            </span>
-                          </td>
-                          <td className="text-right">
-                            {d.status === "in_progress" && j.status === "en_route" && (
-                              <StartJobForm jobId={j.id} hint={DEMO ? j.startOtp : undefined} />
-                            )}
-                            {d.status === "in_progress" && j.status === "in_progress" && (
-                              <CompleteJobForm jobId={j.id} hint={DEMO ? j.endOtp : undefined} />
-                            )}
-                            {d.status === "in_progress" && j.status === "scheduled" && (
-                              <span className="text-[12px] text-ink-300">waiting for the earlier slot</span>
-                            )}
-                          </td>
+                  <div
+                    className="overflow-x-auto"
+                    role="region"
+                    aria-label={`Route sheet for ${d.sku.name} at ${d.society.name}`}
+                    tabIndex={0}
+                  >
+                    <table className="w-full min-w-[660px] text-sm">
+                      <thead>
+                        <tr className="text-ink-500 text-left text-[12px]">
+                          <th scope="col" className="py-1 font-semibold">Flat</th>
+                          <th scope="col" className="font-semibold">Resident</th>
+                          <th scope="col" className="font-semibold">Slot</th>
+                          <th scope="col" className="font-semibold">Technician</th>
+                          <th scope="col" className="font-semibold">Status</th>
+                          <th scope="col" className="font-semibold">Job action</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {jobs.map((j) => (
+                          <tr key={j.id} className="border-t border-line">
+                            <th scope="row" className="py-2 font-bold tnum text-left">{j.flat}</th>
+                            <td>{j.name}</td>
+                            <td className="tnum">{j.slot}</td>
+                            <td>{j.technician}</td>
+                            <td>
+                              <span
+                                className={`pill ${
+                                  j.status === "completed" ? "bg-save-50 text-save-700" : "bg-canvas-alt text-ink-700"
+                                }`}
+                              >
+                                {j.status.replace("_", " ")}
+                              </span>
+                            </td>
+                            <td className="py-2">
+                              {d.status === "in_progress" && j.status === "en_route" && (
+                                <StartJobForm jobId={j.id} hint={DEMO ? j.startOtp : undefined} />
+                              )}
+                              {d.status === "in_progress" && j.status === "in_progress" && (
+                                <CompleteJobForm jobId={j.id} hint={DEMO ? j.endOtp : undefined} />
+                              )}
+                              {d.status === "in_progress" && j.status === "scheduled" && (
+                                <span className="text-[12px] text-ink-500">Waiting for the earlier slot</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </article>
               );
             })}
             {!confirmed.length && <p className="text-sm text-ink-500">Nothing confirmed yet.</p>}
+          </div>
+        </section>
+
+        <section aria-labelledby="revisit-route-sheet">
+          <h2 id="revisit-route-sheet" className="font-extrabold text-[18px] mb-3">Revisit route sheet</h2>
+          <div className="flex flex-col gap-3">
+            {revisits.map((revisit) => {
+              const headingId = `revisit-${revisit.id}`;
+              return (
+                <article key={revisit.id} aria-labelledby={headingId} className="card p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h3 id={headingId} tabIndex={-1} className="font-bold scroll-mt-4">
+                        {revisit.serviceName} · {revisit.societyName}
+                      </h3>
+                      <p className="text-[13px] text-ink-500">
+                        {revisit.residentName} · Flat {revisit.flat}
+                      </p>
+                    </div>
+                    <span className={`pill ${revisit.status === "completed" ? "bg-save-50 text-save-700" : "bg-canvas-alt text-ink-700"}`}>
+                      {REVISIT_STATUS[revisit.status]}
+                    </span>
+                  </div>
+                  {revisit.serviceDate && (
+                    <p className="mt-3 text-sm tnum">
+                      <time dateTime={revisit.serviceDate}>{formatRevisitDate(revisit.serviceDate)}</time>
+                      {revisit.slot && <> · {revisit.slot}</>}
+                      {revisit.technician && <> · {revisit.technician}</>}
+                    </p>
+                  )}
+                  <dl className="mt-3 border-t border-line pt-3 space-y-2 text-[13px] wrap-break-word">
+                    <div>
+                      <dt className="font-bold">Reported issue</dt>
+                      <dd className="text-ink-700">
+                        {revisit.reason}
+                        {revisit.detail && <p className="whitespace-pre-line">{revisit.detail}</p>}
+                      </dd>
+                    </div>
+                    {revisit.instructions && (
+                      <div>
+                        <dt className="font-bold">Instructions from Ops</dt>
+                        <dd className="text-ink-700 whitespace-pre-line">{revisit.instructions}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  {revisit.status === "awaiting_schedule" && (
+                    <div className="mt-3">
+                      <RevisitScheduleForm jobId={revisit.id} earliestDate={earliestRevisitDate} />
+                    </div>
+                  )}
+                  {revisit.status === "scheduled" && (
+                    <div className="mt-3 space-y-3">
+                      {isRevisitDue(revisit.serviceDate)
+                        ? <StartJobForm jobId={revisit.id} hint={DEMO ? revisit.startOtp : undefined} />
+                        : <p className="text-[13px] text-ink-500">Start code can be entered from the visit date.</p>}
+                      <details key={`${revisit.serviceDate}-${revisit.slot}`}>
+                        <summary className="w-fit cursor-pointer text-[13px] font-bold text-brand-700">Reschedule</summary>
+                        <div className="mt-2">
+                          <RevisitScheduleForm
+                            jobId={revisit.id}
+                            earliestDate={earliestRevisitDate}
+                            currentDate={revisit.serviceDate ?? undefined}
+                            currentSlot={revisit.slot}
+                          />
+                        </div>
+                      </details>
+                    </div>
+                  )}
+                  {revisit.status === "in_progress" && (
+                    <div className="mt-3">
+                      <CompleteJobForm jobId={revisit.id} hint={DEMO ? revisit.endOtp : undefined} />
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+            {!revisits.length && <p className="text-sm text-ink-500">No revisits assigned.</p>}
           </div>
         </section>
 

@@ -1,6 +1,11 @@
+import { randomInt } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+import { SOCIETY_COMPLAINTS_SCHEMA } from "./society-complaints-schema";
+import { SOCIETY_COMMUNITY_SCHEMA } from "./society-community-schema";
+import { SOCIETY_FINANCE_SCHEMA } from "./society-finance-schema";
+import { SOCIETY_GATE_SCHEMA } from "./society-gate-schema";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DB_PATH = process.env.JODO_DB ?? path.join(DATA_DIR, "jodo.db");
@@ -24,6 +29,12 @@ CREATE TABLE IF NOT EXISTS residency (
   id TEXT PRIMARY KEY, userId TEXT NOT NULL, societyId TEXT NOT NULL,
   flat TEXT NOT NULL, type TEXT NOT NULL DEFAULT 'owner',
   status TEXT NOT NULL DEFAULT 'pending', verifiedVia TEXT, createdAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS guard_assignment (
+  userId TEXT PRIMARY KEY REFERENCES user(id),
+  societyId TEXT NOT NULL REFERENCES society(id),
+  isActive INTEGER NOT NULL DEFAULT 1 CHECK (isActive IN (0, 1))
 );
 
 CREATE TABLE IF NOT EXISTS vendor (
@@ -108,6 +119,15 @@ CREATE TABLE IF NOT EXISTS dispute (
   createdAt TEXT NOT NULL, resolvedAt TEXT
 );
 
+CREATE TABLE IF NOT EXISTS revisit (
+  id TEXT PRIMARY KEY,
+  disputeId TEXT NOT NULL UNIQUE REFERENCES dispute(id),
+  status TEXT NOT NULL DEFAULT 'awaiting_schedule',
+  serviceDate TEXT, slot TEXT NOT NULL DEFAULT '',
+  startOtp TEXT NOT NULL, endOtp TEXT NOT NULL,
+  createdAt TEXT NOT NULL, startedAt TEXT, finishedAt TEXT
+);
+
 CREATE TABLE IF NOT EXISTS analytics_event (
   id INTEGER PRIMARY KEY AUTOINCREMENT, userId TEXT, name TEXT NOT NULL,
   props TEXT NOT NULL DEFAULT '{}', createdAt TEXT NOT NULL
@@ -136,6 +156,7 @@ declare global {
 
 /** Columns added after the first release, so an existing .data/jodo.db keeps working. */
 const MIGRATIONS: [table: string, column: string, ddl: string][] = [
+  ["guard_assignment", "isActive", "ALTER TABLE guard_assignment ADD COLUMN isActive INTEGER NOT NULL DEFAULT 1"],
   ["deal", "floorPricePaise", "ALTER TABLE deal ADD COLUMN floorPricePaise INTEGER"],
   ["sku", "ladderBasis", "ALTER TABLE sku ADD COLUMN ladderBasis TEXT NOT NULL DEFAULT 'flats'"],
   ["session", "expiresAt", "ALTER TABLE session ADD COLUMN expiresAt TEXT"],
@@ -169,7 +190,7 @@ function migrate(db: DatabaseSync) {
 function open(): DatabaseSync {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   const db = new DatabaseSync(DB_PATH);
-  db.exec(SCHEMA);
+  db.exec(SCHEMA + SOCIETY_COMPLAINTS_SCHEMA + SOCIETY_COMMUNITY_SCHEMA + SOCIETY_FINANCE_SCHEMA + SOCIETY_GATE_SCHEMA);
   migrate(db);
   return db;
 }
@@ -198,11 +219,66 @@ export function run(sql: string, ...params: unknown[]) {
   return getDb().prepare(sql).run(...(params as never[]));
 }
 
+export function inTransaction<T>(work: () => T): T {
+  const db = getDb();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = work();
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function id(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+export function newRevisitCodes(originalStart: string, originalEnd: string) {
+  const used = new Set([originalStart, originalEnd]);
+  function nextCode() {
+    let code = String(randomInt(1000, 10_000));
+    while (used.has(code)) code = String(randomInt(1000, 10_000));
+    used.add(code);
+    return code;
+  }
+  return [nextCode(), nextCode()] as const;
+}
+
 // ---------------------------------------------------------------- seed data
+
+/** The sample bookings predate the visit and payment records. */
+function backfillDemoBookings(db: DatabaseSync) {
+  db.exec(`
+    INSERT INTO job (id, dealId, memberId, flat, technician, slot, status, startOtp, endOtp, startedAt, finishedAt)
+    SELECT 'job_' || lower(hex(randomblob(8))), d.id, m.id, m.flat,
+           CASE d.id WHEN 'deal_carwash' THEN 'ShineWash crew' ELSE 'CoolCare crew' END,
+           m.slot, CASE m.status WHEN 'served' THEN 'completed' ELSE 'scheduled' END,
+           1000 + abs(random() % 9000), 1000 + abs(random() % 9000),
+           CASE m.status WHEN 'served' THEN d.serviceDate END,
+           CASE m.status WHEN 'served' THEN d.serviceDate END
+    FROM deal_member m JOIN deal d ON d.id = m.dealId
+    WHERE ((d.id = 'deal_carwash' AND d.status IN ('locked', 'in_progress') AND m.status = 'locked')
+           OR (d.id = 'deal_ac_done' AND d.status = 'completed' AND m.status = 'served'))
+      AND NOT EXISTS (SELECT 1 FROM job j WHERE j.memberId = m.id);
+
+    UPDATE job SET status = 'en_route'
+    WHERE dealId = 'deal_carwash' AND status = 'scheduled'
+      AND EXISTS (SELECT 1 FROM deal d WHERE d.id = 'deal_carwash' AND d.status = 'in_progress')
+      AND NOT EXISTS (SELECT 1 FROM job j WHERE j.dealId = 'deal_carwash' AND j.status IN ('en_route', 'in_progress'))
+      AND slot = (SELECT min(j.slot) FROM job j WHERE j.dealId = 'deal_carwash' AND j.status = 'scheduled');
+
+    INSERT INTO payment (id, memberId, dealId, type, method, amountPaise, status, ref, createdAt)
+    SELECT 'pay_seed_' || m.id, m.id, d.id, 'capture', m.paymentMethod, m.finalPricePaise * m.units,
+           'captured', 'sim_seed_' || m.id, coalesce(d.lockedAt, d.createdAt)
+    FROM deal_member m JOIN deal d ON d.id = m.dealId
+    WHERE d.id IN ('deal_carwash', 'deal_ac_done') AND d.status IN ('locked', 'in_progress', 'completed')
+      AND m.status IN ('locked', 'served') AND m.finalPricePaise IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.memberId = m.id AND p.type = 'capture');
+  `);
+}
 
 const DAY = 86_400_000;
 
@@ -231,7 +307,14 @@ const NEIGHBOURS: [string, string][] = [
 export function resetAllData() {
   const db = getDb();
   const tables = [
-    "analytics_event", "notification", "payment", "dispute", "job", "deal_event", "comment",
+    "gate_visit", "gate_pass", "guard_assignment",
+    "society_complaint_event", "society_complaint",
+    "society_amenity_reservation", "society_amenity",
+    "society_poll_vote", "society_poll_option", "society_poll",
+    "society_meeting_rsvp", "society_meeting", "society_notice",
+    "society_finance_payments", "society_finance_bill_items", "society_finance_bills", "society_finance_expense_receipts", "society_finance_expenses",
+    "society_finance_bank_balances",
+    "analytics_event", "notification", "payment", "revisit", "dispute", "job", "deal_event", "comment",
     "deal_member", "deal", "residency", "user", "sku", "vendor", "society",
   ];
   // Sessions are kept: the seeded accounts come back with the same ids, so whoever
@@ -249,8 +332,47 @@ export function resetAllData() {
 
 export function seedIfEmpty(db: DatabaseSync) {
   const existing = db.prepare("SELECT COUNT(*) AS n FROM society").get() as { n: number };
-  if (existing.n > 0) return;
-  seed(db);
+  if (existing.n === 0) {
+    seed(db);
+    return;
+  }
+  backfillDemoBookings(db);
+  backfillRevisitApprovals(db);
+  seedDemoGuard(db);
+}
+
+function seedDemoGuard(db: DatabaseSync) {
+  db.exec(`
+    INSERT OR IGNORE INTO user (id, phone, name, role)
+    SELECT 'usr_guard_green', '9000000098', 'Green Valley Gate', 'guard'
+    WHERE EXISTS (SELECT 1 FROM society WHERE id = 'soc_green_valley');
+
+    INSERT OR IGNORE INTO guard_assignment (userId, societyId)
+    SELECT u.id, s.id FROM user u CROSS JOIN society s
+    WHERE u.id = 'usr_guard_green' AND u.role = 'guard' AND s.id = 'soc_green_valley';
+  `);
+}
+
+/** Older approvals had no appointment. Recover the latest approval per original visit. */
+function backfillRevisitApprovals(db: DatabaseSync) {
+  const approvals = db.prepare(`
+    WITH ranked AS (
+      SELECT d.id AS disputeId, coalesce(d.resolvedAt, d.createdAt) AS approvedAt, j.startOtp, j.endOtp,
+             row_number() OVER (PARTITION BY d.jobId ORDER BY coalesce(d.resolvedAt, d.createdAt) DESC, d.id DESC) AS rank
+      FROM dispute d JOIN job j ON j.id = d.jobId
+      WHERE d.status = 'resolved' AND d.resolution LIKE 'revisit:%' AND j.status = 'completed'
+    )
+    SELECT disputeId, approvedAt, startOtp, endOtp FROM ranked
+    WHERE rank = 1 AND NOT EXISTS (SELECT 1 FROM revisit r WHERE r.disputeId = ranked.disputeId)
+  `).all() as { disputeId: string; approvedAt: string; startOtp: string; endOtp: string }[];
+  const insert = db.prepare(`
+    INSERT INTO revisit (id, disputeId, startOtp, endOtp, createdAt) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(disputeId) DO NOTHING
+  `);
+  for (const approval of approvals) {
+    const codes = newRevisitCodes(approval.startOtp, approval.endOtp);
+    insert.run(`visit_${approval.disputeId}`, approval.disputeId, ...codes, approval.approvedAt);
+  }
 }
 
 export function seed(db: DatabaseSync) {
@@ -398,7 +520,9 @@ export function seed(db: DatabaseSync) {
   mkDeal({ id: "deal_ac_done", skuId: "sku_ac_service", vendorId: "ven_coolcare", createdBy: secretary, serviceDate: new Date(now.getTime() - 32 * DAY), status: "completed", deadline: new Date(now.getTime() - 34 * DAY), target: 20, mvs: 10, lockedAt: new Date(now.getTime() - 34 * DAY) });
   joinMany("deal_ac_done", 18, "served", 0);
   db.prepare("UPDATE deal_member SET finalPricePaise = 74900 WHERE dealId = 'deal_ac_done'").run();
+  backfillDemoBookings(db);
 
   db.prepare("INSERT INTO deal_event (dealId,type,payload,createdAt) VALUES (?,?,?,?)")
     .run("deal_ac_sunday", "created", JSON.stringify({ by: "seed" }), iso(now));
+  seedDemoGuard(db);
 }

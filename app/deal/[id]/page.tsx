@@ -5,6 +5,7 @@ import { getDealView, myJob, queueAhead, tickDeal } from "@/lib/deals";
 import { formatDate, rupees, timeAgo } from "@/lib/pricing";
 import { getMe } from "@/lib/session";
 import { can } from "@/lib/authz";
+import { dealReturnHref, dealReturnPath } from "@/lib/deal-return";
 import { getDb } from "@/lib/db";
 import { shareText } from "@/lib/share";
 import { translator } from "@/lib/i18n";
@@ -16,7 +17,8 @@ import Countdown from "@/components/Countdown";
 import AutoRefresh from "@/components/AutoRefresh";
 import TrackView from "@/components/TrackView";
 import JoinSheet from "@/components/JoinSheet";
-import { ApproveDealForm, CommentForm, DisputeForm, QuickReplies, RateForm, ShareButton } from "@/components/forms";
+import ServiceVisit from "@/components/ServiceVisit";
+import { ApproveDealForm, CommentForm, QuickReplies, ShareButton } from "@/components/forms";
 
 export const dynamic = "force-dynamic";
 
@@ -27,9 +29,13 @@ export default async function DealPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ created?: string }>;
 }) {
-  const me = await getMe();
-  if (!me) redirect("/login");
   const { id } = await params;
+  const me = await getMe();
+  const next = dealReturnPath(`/deal/${id}`);
+  if (!me) redirect(dealReturnHref("/login", next));
+  if (!me.residency && (me.user.role === "resident" || me.user.role === "secretary")) {
+    redirect(dealReturnHref("/onboarding", next));
+  }
   const { created } = await searchParams;
   getDb();
   // Close the deal first if its deadline has passed, so this page can never show
@@ -46,6 +52,7 @@ export default async function DealPage({
   const canJoin = can(me, { kind: "deal.join", dealId: id });
   const canApprove = deal.status === "pending" && can(me, { kind: "deal.approve", dealId: id });
   const myUnits = deal.joinedByMe?.units ?? 1;
+  const live = deal.status === "open" || (job && job.status !== "completed");
 
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
@@ -60,7 +67,7 @@ export default async function DealPage({
         back={{ href: "/", label: t("common.back", "Back") }}
         title={deal.sku.name}
         subtitle={`${deal.society.name} · ${formatDate(deal.serviceDate)}`}
-        right={deal.status === "open" ? <AutoRefresh intervalMs={30_000} /> : undefined}
+        right={live ? <AutoRefresh intervalMs={deal.status === "open" ? 30_000 : 15_000} /> : undefined}
       />
 
       <div className="flex-1 px-4 py-4 flex flex-col gap-3">
@@ -128,18 +135,6 @@ export default async function DealPage({
               Final price <strong>{rupees(deal.currentPricePaise)}</strong> per {deal.sku.unitLabel} — everyone pays the
               same, including whoever joined first.
             </p>
-            {job && (
-              <div className="card p-3 mt-3 bg-surface">
-                <p className="text-sm font-bold">Your slot: {job.slot}</p>
-                <p className="text-[13px] text-ink-500">
-                  Technician {job.technician} · start code <span className="tnum font-bold">{job.startOtp}</span> ·
-                  completion code <span className="tnum font-bold">{job.endOtp}</span>
-                </p>
-                <p className="text-[12px] text-ink-500 mt-1">
-                  Give the start code when they arrive, the completion code only once you&apos;re happy.
-                </p>
-              </div>
-            )}
           </section>
         )}
 
@@ -147,53 +142,47 @@ export default async function DealPage({
           <section className="card p-4 bg-warn-50 border-warn-500/30">
             <p className="font-extrabold text-warn-600 mb-1">Service day in progress</p>
             <p className="text-sm text-ink-700">
-              {deal.vendor.name} is working through the building. {job ? `Your slot is ${job.slot}.` : ""}
+              {deal.vendor.name} is working through the building.
             </p>
-            {queue && (
-              <p className="tnum text-[15px] font-bold mt-2">
-                {queue.ahead === 0 ? "You're next" : `${queue.ahead} flats ahead · about ${queue.etaMin} min`}
-              </p>
-            )}
-            {job && (
-              <p className="text-sm mt-2">
-                Start code <strong className="tnum">{job.startOtp}</strong> · completion code{" "}
-                <strong className="tnum">{job.endOtp}</strong> for {job.technician}.
-              </p>
-            )}
           </section>
         )}
 
         {deal.status === "expired" && (
           <section className="card p-4">
-            <p className="font-extrabold mb-1">This group didn&apos;t fill</p>
+            <p className="font-extrabold mb-1">This group closed</p>
             <p className="text-sm text-ink-700 mb-3">
-              Only {deal.basisCount} of the {deal.mvs} {deal.basisLabel} needed joined before the deadline
-              {deal.extendedAt ? ", even with the 48-hour extension" : ""}, so the booking was cancelled.{" "}
-              <strong>Nobody was charged</strong> — every authorisation was released.
+              {deal.basisCount < deal.mvs && `Only ${deal.basisCount} of the ${deal.mvs} ${deal.basisLabel} needed joined. `}
+              <strong>Nobody was charged.</strong>
             </p>
             <div className="flex flex-col gap-2">
               <Link href={`/create?sku=${deal.skuId}`} className="btn btn-primary w-full">
-                Start it again for next week
+                Start a new group
               </Link>
               <Link href="/explore" className="btn btn-quiet w-full">
-                Book solo at {rupees(deal.listPricePaise)}
+                Explore services
               </Link>
             </div>
           </section>
         )}
 
-        {deal.status === "completed" && job && (
+        {job && job.status !== "completed" && (
           <section className="card p-4">
-            <p className="font-extrabold mb-1">Done · {formatDate(deal.serviceDate)}</p>
+            <p className="font-extrabold mb-2">Your visit · {job.slot}</p>
+            <ServiceVisit job={job} queue={queue} />
+          </section>
+        )}
+
+        {job?.status === "completed" && (
+          <section className="card p-4">
+            <p className="font-extrabold mb-1">Your visit is complete</p>
             <p className="text-sm text-ink-700 mb-3">
-              You paid <strong>{rupees((deal.joinedByMe?.finalPricePaise ?? deal.currentPricePaise) * myUnits)}</strong>{" "}
+              Your final price was <strong>{rupees((deal.joinedByMe?.finalPricePaise ?? deal.currentPricePaise) * myUnits)}</strong>{" "}
               instead of {rupees(deal.listPricePaise * myUnits)}.
               {deal.sku.warrantyDays > 0 && ` Workmanship warranty: ${deal.sku.warrantyDays} days.`}
             </p>
-            <RateForm jobId={job.id} current={job.ratingScore} />
-            <div className="mt-3">
-              <DisputeForm jobId={job.id} />
-            </div>
+            <Link href={`/bookings#booking-${deal.id}`} className="btn btn-quiet w-full">
+              Rate your visit or get help
+            </Link>
           </section>
         )}
 

@@ -34,6 +34,7 @@ export type Action =
   | { kind: "deal.simulate"; dealId: string }
   | { kind: "deal.approve"; dealId: string }
   | { kind: "job.start"; jobId: string }
+  | { kind: "job.schedule_revisit"; jobId: string }
   | { kind: "dispute.raise"; jobId: string }
   | { kind: "dispute.resolve" }
   | { kind: "job.complete"; jobId: string }
@@ -86,19 +87,20 @@ export function can(me: Me, action: Action): boolean {
       return !!row && row.userId === me.user.id;
     }
 
-    case "job.start": {
-      const row = one<{ dealId: string }>("SELECT dealId FROM job WHERE id = ?", action.jobId);
-      if (!row) return false;
-      return isOps(me) || isDealVendor(me, deal(row.dealId));
-    }
-
     case "deal.simulate":
     case "demo.reset":
       // Demo controls: ops only, and never in a production deployment.
       return isOps(me) && process.env.NODE_ENV !== "production";
 
+    case "job.schedule_revisit":
+    case "job.start":
     case "job.complete": {
-      const row = one<{ dealId: string }>("SELECT dealId FROM job WHERE id = ?", action.jobId);
+      const revisit = one<{ dealId: string }>(
+        "SELECT d.dealId FROM revisit r JOIN dispute d ON d.id = r.disputeId WHERE r.id = ?", action.jobId,
+      );
+      const row = action.kind === "job.schedule_revisit"
+        ? revisit
+        : revisit ?? one<{ dealId: string }>("SELECT dealId FROM job WHERE id = ?", action.jobId);
       if (!row) return false;
       return isOps(me) || isDealVendor(me, deal(row.dealId));
     }
@@ -128,6 +130,7 @@ const MESSAGES: Record<string, string> = {
   "job.complete": "Only the vendor on this job can close it.",
   "job.rate": "You can only rate your own job.",
   "job.start": "Only the vendor on this job can start it.",
+  "job.schedule_revisit": "Only the assigned vendor or JODO ops can schedule this revisit.",
   "deal.approve": "Only the society committee or JODO ops can approve a group.",
   "dispute.raise": "You can only raise an issue on your own job.",
   "dispute.resolve": "Only JODO ops can resolve an issue.",

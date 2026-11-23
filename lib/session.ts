@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { all, id, one, run } from "./db";
+import { all, id, inTransaction, one, run } from "./db";
 import type { Residency, User } from "./types";
 
 const COOKIE = "jodo_session";
@@ -121,23 +121,36 @@ export function claimResidency(args: {
   const flat = normaliseFlat(args.flat);
   if (!flat) throw new ResidencyError("Flat should look like A-402.");
 
-  const taken = one<{ userId: string }>(
-    "SELECT userId FROM residency WHERE societyId = ? AND flat = ? AND status = 'verified' AND userId <> ?",
-    society.id, flat, args.userId,
-  );
-  if (taken) {
-    throw new ResidencyError(
-      `${flat} is already verified in ${society.name}. If you live there too, ask them to add you from their profile.`,
+  return inTransaction(() => {
+    const verified = one<{ id: string; societyId: string; flat: string }>(
+      "SELECT id, societyId, flat FROM residency WHERE userId = ? AND status = 'verified' ORDER BY createdAt DESC, id LIMIT 1",
+      args.userId,
     );
-  }
+    if (verified && (verified.societyId !== society.id || verified.flat !== flat)) {
+      throw new ResidencyError("Your flat is already verified. Contact your society committee to change it.");
+    }
+    const taken = one<{ userId: string }>(
+      "SELECT userId FROM residency WHERE societyId = ? AND flat = ? AND status = 'verified' AND userId <> ?",
+      society.id, flat, args.userId,
+    );
+    if (taken) {
+      throw new ResidencyError(
+        `${flat} is already verified in ${society.name}. If you live there, ask your society secretary for help.`,
+      );
+    }
 
-  run("UPDATE user SET name = ? WHERE id = ?", name, args.userId);
-  run("DELETE FROM residency WHERE userId = ?", args.userId);
-  run(
-    "INSERT INTO residency (id,userId,societyId,flat,type,status,verifiedVia,createdAt) VALUES (?,?,?,?,?,?,?,?)",
-    id("res"), args.userId, society.id, flat, args.type, "verified", "neighbour_vouch", new Date().toISOString(),
-  );
-  return { flat, societyName: society.name };
+    run("UPDATE user SET name = ? WHERE id = ?", name, args.userId);
+    if (verified) {
+      run("UPDATE residency SET type = ? WHERE id = ?", args.type, verified.id);
+    } else {
+      run("DELETE FROM residency WHERE userId = ?", args.userId);
+      run(
+        "INSERT INTO residency (id,userId,societyId,flat,type,status,verifiedVia,createdAt) VALUES (?,?,?,?,?,?,?,?)",
+        id("res"), args.userId, society.id, flat, args.type, "verified", "neighbour_vouch", new Date().toISOString(),
+      );
+    }
+    return { flat, societyName: society.name };
+  });
 }
 
 export function societies() {

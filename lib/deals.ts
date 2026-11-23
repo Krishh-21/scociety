@@ -1,10 +1,11 @@
-import { all, getDb, id, one, run } from "./db";
+import { all, getDb, id, newRevisitCodes, one, run } from "./db";
 import {
   commission, currentPrice, effectivePrice, ladderRaisesPrice, nextSlab, rupees, savings, validateSlabs,
 } from "./pricing";
 import { notify, societyResidentIds } from "./notify";
 import { track } from "./analytics";
-import type { Deal, DealMember, DealView, Slab, Sku, Society, Vendor } from "./types";
+import { REVISIT_SLOTS, formatRevisitDate, isRevisitDue, isValidRevisitDate, revisitToday } from "./revisits";
+import type { Deal, DealMember, DealView, JobStatus, RevisitVisit, Slab, Sku, Society, Vendor } from "./types";
 
 type DealRow = Omit<Deal, "slabs" | "slotWindows"> & { slabs: string; slotWindows: string };
 type SkuRow = Omit<Sku, "included" | "excluded"> & { included: string; excluded: string; defaultSlabs: string };
@@ -83,6 +84,19 @@ export function logEvent(dealId: string, type: string, payload: Record<string, u
 }
 
 export class DealError extends Error {}
+
+function dealTransaction<T>(work: () => T): T {
+  const db = getDb();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = work();
+    db.exec("COMMIT");
+    return result;
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
 
 // ----------------------------------------------------------------- reading
 
@@ -173,11 +187,15 @@ export function societySavings(societyId: string): number {
 }
 
 export function myBookings(userId: string) {
+  ensureTicker();
   const rows = all<{ dealId: string }>(
     "SELECT dealId FROM deal_member WHERE userId = ? AND status <> 'left' ORDER BY joinedAt DESC",
     userId,
   );
-  return rows.map((r) => getDealView(r.dealId, userId)!).filter(Boolean);
+  return rows.map(({ dealId }) => {
+    tickDeal(dealId);
+    return getDealView(dealId, userId)!;
+  }).filter(Boolean);
 }
 
 /** "Your society repeats this in March" — demand we create rather than wait for. */
@@ -286,6 +304,10 @@ export function joinDeal(args: {
       slabPrice, slabPrice, args.dealId,
     );
 
+    // Authorise before committing the join, so a lock can't capture it first.
+    recordPayment(memberId, args.dealId, "authorisation", args.paymentMethod,
+      effectivePrice(slabPrice, deal.floorPricePaise) * args.units,
+      args.paymentMethod === "cash" ? "not_applicable" : "held");
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
@@ -293,11 +315,6 @@ export function joinDeal(args: {
   }
 
   const view = getDealViewFresh(args.dealId, args.userId);
-
-  // Money is authorised, not taken. Capture happens at lock.
-  recordPayment(memberId, args.dealId, "authorisation", args.paymentMethod,
-    view.currentPricePaise * args.units,
-    args.paymentMethod === "cash" ? "not_applicable" : "held");
 
   logEvent(args.dealId, "join", { userId: args.userId, flats: view.flatsJoined, price: view.currentPricePaise });
   track(args.userId, "join_success", { dealId: args.dealId, units: args.units, price: view.currentPricePaise });
@@ -321,17 +338,19 @@ function getDealViewFresh(dealId: string, viewerId?: string): DealView {
 }
 
 export function leaveDeal(dealId: string, userId: string) {
-  const deal = one<DealRow>("SELECT * FROM deal WHERE id = ?", dealId);
-  if (!deal) throw new DealError("Deal not found.");
-  if (deal.status !== "open") throw new DealError("You can only leave a group before it locks.");
-  const member = one<{ id: string }>("SELECT id FROM deal_member WHERE dealId = ? AND userId = ?", dealId, userId);
-  run("UPDATE deal_member SET status='left' WHERE dealId = ? AND userId = ?", dealId, userId);
-  if (member) {
-    run("UPDATE payment SET status='released' WHERE memberId = ? AND type='authorisation' AND status='held'", member.id);
-  }
-  logEvent(dealId, "leave", { userId });
-  track(userId, "leave", { dealId });
-  return getDealView(dealId, userId)!;
+  return dealTransaction(() => {
+    const deal = one<DealRow>("SELECT * FROM deal WHERE id = ?", dealId);
+    if (!deal) throw new DealError("Deal not found.");
+    if (deal.status !== "open") throw new DealError("You can only leave a group before it locks.");
+    const member = one<{ id: string }>("SELECT id FROM deal_member WHERE dealId = ? AND userId = ? AND status='joined'", dealId, userId);
+    if (member) {
+      run("UPDATE deal_member SET status='left' WHERE id = ?", member.id);
+      run("UPDATE payment SET status='released' WHERE memberId = ? AND type='authorisation' AND status='held'", member.id);
+      logEvent(dealId, "leave", { userId });
+      track(userId, "leave", { dealId });
+    }
+    return getDealView(dealId, userId)!;
+  });
 }
 
 export function addComment(dealId: string, userId: string, body: string) {
@@ -432,14 +451,20 @@ export function approveDeal(dealId: string, approvedBy: string) {
 
 /** Lock a deal: freeze one final price for every member and create one job per flat. */
 export function lockDeal(dealId: string) {
-  const view = getDealView(dealId);
-  if (!view) throw new DealError("Deal not found.");
+  return dealTransaction(() => {
+    const view = getDealView(dealId);
+    if (!view) throw new DealError("Deal not found.");
+    return lockOpenDeal(view);
+  });
+}
+
+function lockOpenDeal(view: DealView) {
   if (view.status !== "open") throw new DealError("Deal is not open.");
   if (view.basisCount < view.mvs) {
     throw new DealError(`Needs ${view.mvs} ${view.basisLabel}, has ${view.basisCount}.`);
   }
 
-  const price = view.currentPricePaise;
+  const { id: dealId, currentPricePaise: price } = view;
   run("UPDATE deal SET status='locked', lockedAt=?, floorPricePaise=? WHERE id = ?", now(), price, dealId);
   run("UPDATE deal_member SET status='locked', finalPricePaise=? WHERE dealId = ? AND status='joined'", price, dealId);
 
@@ -472,11 +497,19 @@ export function lockDeal(dealId: string) {
 
 /** Deadline passed without the minimum: nobody is charged. */
 export function expireDeal(dealId: string) {
-  const view = getDealView(dealId);
-  if (!view) throw new DealError("Deal not found.");
+  return dealTransaction(() => {
+    const view = getDealView(dealId);
+    if (!view) throw new DealError("Deal not found.");
+    return expireOpenDeal(view);
+  });
+}
+
+function expireOpenDeal(view: DealView) {
+  if (view.status !== "open") throw new DealError("Only a group that's still filling can be closed.");
+  const dealId = view.id;
   // Members are kept on the record (nobody was charged) so the society can see
   // how close the group got and roll it into next week.
-  run("UPDATE deal SET status='expired' WHERE id = ? AND status='open'", dealId);
+  run("UPDATE deal SET status='expired' WHERE id = ?", dealId);
   for (const m of view.members) {
     run("UPDATE payment SET status='released' WHERE memberId = ? AND type='authorisation' AND status='held'", m.id);
     recordPayment(m.id, dealId, "release", m.paymentMethod, 0, "released");
@@ -485,8 +518,10 @@ export function expireDeal(dealId: string) {
   notify(view.members.map((m) => m.userId), {
     type: "expired",
     dealId,
-    title: "That group didn't fill",
-    body: `Only ${view.basisCount} of ${view.mvs} ${view.basisLabel} joined. You were not charged — roll it into next week?`,
+    title: "Your group was closed",
+    body: view.basisCount < view.mvs
+      ? `Only ${view.basisCount} of ${view.mvs} ${view.basisLabel} joined. You were not charged.`
+      : "The group was closed without a charge.",
   });
   return getDealView(dealId)!;
 }
@@ -531,47 +566,53 @@ export function tickDeal(dealId: string) {
 }
 
 function closeIfDue(dealId: string) {
-  const view = getDealView(dealId);
-  if (!view || view.status !== "open") return;
-  if (view.basisCount >= view.mvs) {
-    lockDeal(dealId);
-    return;
-  }
-  // One automatic extension for a group that nearly made it, as promised in
-  // docs/02-ux-flows.md §3.3. After that it expires and nobody is charged.
-  const closeEnough = view.basisCount >= Math.ceil(view.mvs * 0.6);
-  if (closeEnough && !view.extendedAt) {
-    const deadline = new Date(Date.now() + EXTENSION_MS).toISOString();
-    run("UPDATE deal SET joinDeadline=?, extendedAt=? WHERE id = ?", deadline, now(), dealId);
-    logEvent(dealId, "extended", { until: deadline });
-    notify(societyResidentIds(view.societyId), {
-      type: "extended",
-      dealId,
-      title: `${view.sku.name}: 48 more hours`,
-      body: `${view.basisCount} of ${view.mvs} ${view.basisLabel} joined. The vendor held the date — ${view.mvs - view.basisCount} more and it's confirmed.`,
-    });
-    return;
-  }
-  expireDeal(dealId);
+  dealTransaction(() => {
+    const view = getDealView(dealId);
+    if (!view || view.status !== "open" || view.msToDeadline > 0) return;
+    if (view.basisCount >= view.mvs) {
+      lockOpenDeal(view);
+      return;
+    }
+    // One automatic extension for a group that nearly made it.
+    const closeEnough = view.basisCount >= Math.ceil(view.mvs * 0.6);
+    if (closeEnough && !view.extendedAt) {
+      const deadline = new Date(Date.now() + EXTENSION_MS).toISOString();
+      run("UPDATE deal SET joinDeadline=?, extendedAt=? WHERE id = ?", deadline, now(), dealId);
+      logEvent(dealId, "extended", { until: deadline });
+      notify(societyResidentIds(view.societyId), {
+        type: "extended",
+        dealId,
+        title: `${view.sku.name}: 48 more hours`,
+        body: `${view.basisCount} of ${view.mvs} ${view.basisLabel} joined. The vendor held the date — ${view.mvs - view.basisCount} more and it's confirmed.`,
+      });
+      return;
+    }
+    expireOpenDeal(view);
+  });
 }
 
 // ------------------------------------------------------------- service day
 
 /** Opens the service day: only the first slot's crew sets off. */
 export function startService(dealId: string) {
-  const view = getDealView(dealId);
-  if (!view) throw new DealError("Deal not found.");
-  if (view.status !== "locked") throw new DealError("This group isn't confirmed yet.");
-  run("UPDATE deal SET status='in_progress' WHERE id = ?", dealId);
-  releaseNextSlot(dealId);
-  logEvent(dealId, "service_started", {});
-  notify(view.members.map((m) => m.userId), {
-    type: "service_day",
-    dealId,
-    title: `${view.vendor.name} has started in the building`,
-    body: "You'll see your place in the queue in the app.",
+  return dealTransaction(() => {
+    const view = getDealView(dealId);
+    if (!view) throw new DealError("Deal not found.");
+    if (view.status !== "locked") throw new DealError("This group isn't confirmed yet.");
+    if (!one("SELECT id FROM job WHERE dealId = ? AND status <> 'completed' LIMIT 1", dealId)) {
+      throw new DealError("There are no scheduled visits for this group.");
+    }
+    run("UPDATE deal SET status='in_progress' WHERE id = ?", dealId);
+    releaseNextSlot(dealId);
+    logEvent(dealId, "service_started", {});
+    notify(view.members.map((m) => m.userId), {
+      type: "service_day",
+      dealId,
+      title: `${view.vendor.name} has started in the building`,
+      body: "You'll see your place in the queue in the app.",
+    });
+    return getDealView(dealId)!;
   });
-  return getDealView(dealId)!;
 }
 
 /** Sends the earliest slot that still has work to do out as 'en route'. */
@@ -588,54 +629,77 @@ function releaseNextSlot(dealId: string) {
   run("UPDATE job SET status='en_route' WHERE dealId = ? AND slot = ? AND status='scheduled'", dealId, next.slot);
 }
 
-export function startJob(jobId: string, otp: string) {
-  const job = one<{ id: string; dealId: string; startOtp: string; status: string }>("SELECT * FROM job WHERE id = ?", jobId);
+function getServiceJob(jobId: string) {
+  const job = one<{
+    dealId: string; memberId: string; startOtp: string; endOtp: string; status: JobStatus; dealStatus: Deal["status"];
+  }>(
+    "SELECT j.*, d.status AS dealStatus FROM job j JOIN deal d ON d.id = j.dealId WHERE j.id = ?",
+    jobId,
+  );
   if (!job) throw new DealError("Job not found.");
   if (job.status === "completed") throw new DealError("That job is already done.");
-  if (otp.trim() !== job.startOtp) throw new DealError("That start code doesn't match.");
-  run("UPDATE job SET status='in_progress', startedAt=? WHERE id = ?", now(), jobId);
-  return job.dealId;
+  if (job.dealStatus !== "in_progress") throw new DealError("Start the service day first.");
+  return job;
+}
+
+export function startJob(jobId: string, otp: string) {
+  return dealTransaction(() => {
+    const revisit = one<RevisitVisit>(`${REVISIT_VIEW} WHERE r.id = ?`, jobId);
+    if (revisit) return startRevisit(revisit, otp);
+    const job = getServiceJob(jobId);
+    if (job.status === "in_progress") throw new DealError("That job has already started.");
+    if (job.status !== "en_route") throw new DealError("Wait for this slot to open before starting the job.");
+    if (otp.trim() !== job.startOtp) throw new DealError("That start code doesn't match.");
+    run("UPDATE job SET status='in_progress', startedAt=? WHERE id = ?", now(), jobId);
+    return job.dealId;
+  });
 }
 
 export function completeJob(jobId: string, otp: string) {
-  const job = one<{ id: string; dealId: string; endOtp: string; memberId: string }>("SELECT * FROM job WHERE id = ?", jobId);
-  if (!job) throw new DealError("Job not found.");
-  if (otp.trim() !== job.endOtp) throw new DealError("That OTP doesn't match.");
-  run("UPDATE job SET status='completed', finishedAt=? WHERE id = ?", now(), jobId);
-  run("UPDATE deal_member SET status='served' WHERE id = ?", job.memberId);
+  return dealTransaction(() => {
+    const revisit = one<RevisitVisit>(`${REVISIT_VIEW} WHERE r.id = ?`, jobId);
+    if (revisit) return completeRevisit(revisit, otp);
+    const job = getServiceJob(jobId);
+    if (job.status !== "in_progress") throw new DealError("Start the job before completing it.");
+    if (otp.trim() !== job.endOtp) throw new DealError("That OTP doesn't match.");
+    run("UPDATE job SET status='completed', finishedAt=? WHERE id = ?", now(), jobId);
+    run("UPDATE deal_member SET status='served' WHERE id = ?", job.memberId);
 
-  const member = one<{ userId: string }>("SELECT userId FROM deal_member WHERE id = ?", job.memberId);
-  const view = getDealView(job.dealId)!;
-  if (member) {
-    notify([member.userId], {
-      type: "job_done",
-      dealId: job.dealId,
-      title: "Your service is done",
-      body: view.sku.warrantyDays
-        ? `Rate ${view.vendor.name} — your ${view.sku.warrantyDays}-day warranty starts today.`
-        : `Rate ${view.vendor.name}.`,
-    });
-  }
-
-  releaseNextSlot(job.dealId);
-  const left = one<{ n: number }>("SELECT COUNT(*) AS n FROM job WHERE dealId = ? AND status <> 'completed'", job.dealId)!;
-  if (left.n === 0) {
-    run("UPDATE deal SET status='completed' WHERE id = ?", job.dealId);
-    logEvent(job.dealId, "completed", {});
-    if (view.sku.repeatMonths) {
-      notify(societyResidentIds(view.societyId), {
-        type: "repeat_due",
+    const member = one<{ userId: string }>("SELECT userId FROM deal_member WHERE id = ?", job.memberId);
+    const view = getDealView(job.dealId)!;
+    if (member) {
+      notify([member.userId], {
+        type: "job_done",
         dealId: job.dealId,
-        title: `${view.sku.name} done for ${view.flatsJoined} flats`,
-        body: `Your society usually repeats this every ${view.sku.repeatMonths} months — we'll remind you.`,
+        title: "Your service is done",
+        body: view.sku.warrantyDays
+          ? `Rate ${view.vendor.name} — your ${view.sku.warrantyDays}-day warranty starts today.`
+          : `Rate ${view.vendor.name}.`,
       });
     }
-  }
-  return job.dealId;
+
+    releaseNextSlot(job.dealId);
+    const left = one<{ n: number }>("SELECT COUNT(*) AS n FROM job WHERE dealId = ? AND status <> 'completed'", job.dealId)!;
+    if (left.n === 0) {
+      run("UPDATE deal SET status='completed' WHERE id = ?", job.dealId);
+      logEvent(job.dealId, "completed", {});
+      if (view.sku.repeatMonths) {
+        notify(societyResidentIds(view.societyId), {
+          type: "repeat_due",
+          dealId: job.dealId,
+          title: `${view.sku.name} done for ${view.flatsJoined} flats`,
+          body: `Your society usually repeats this every ${view.sku.repeatMonths} months — we'll remind you.`,
+        });
+      }
+    }
+    return job.dealId;
+  });
 }
 
 export function rateJob(jobId: string, score: number, note: string) {
-  run("UPDATE job SET ratingScore=?, ratingNote=? WHERE id = ?", Math.max(1, Math.min(5, score)), note.slice(0, 300), jobId);
+  if (!Number.isInteger(score) || score < 1 || score > 5) throw new DealError("Pick a rating from 1 to 5.");
+  const result = run("UPDATE job SET ratingScore=?, ratingNote=? WHERE id = ? AND status='completed'", score, note.slice(0, 300), jobId);
+  if (!result.changes) throw new DealError("You can rate the service once your visit is complete.");
 }
 
 export function jobsForDeal(dealId: string) {
@@ -652,8 +716,8 @@ export function jobsForDeal(dealId: string) {
 
 export function myJob(dealId: string, userId: string) {
   return one<{
-    id: string; flat: string; technician: string; slot: string; status: string;
-    startOtp: string; endOtp: string; ratingScore: number | null;
+    id: string; technician: string; slot: string; status: JobStatus;
+    startOtp: string; endOtp: string; ratingScore: number | null; finishedAt: string | null;
   }>(
     `SELECT j.* FROM job j JOIN deal_member m ON m.id = j.memberId WHERE j.dealId = ? AND m.userId = ?`,
     dealId, userId,
@@ -662,8 +726,11 @@ export function myJob(dealId: string, userId: string) {
 
 /** "3 flats ahead, about 40 minutes" — the queue the resident actually cares about. */
 export function queueAhead(dealId: string, jobId: string) {
-  const job = one<{ slot: string; flat: string; status: string }>("SELECT slot, flat, status FROM job WHERE id = ?", jobId);
-  if (!job || job.status === "completed") return null;
+  const job = one<{ slot: string; flat: string }>(
+    "SELECT slot, flat FROM job WHERE id = ? AND dealId = ? AND status IN ('scheduled', 'en_route')",
+    jobId, dealId,
+  );
+  if (!job) return null;
   const ahead = one<{ n: number }>(
     `SELECT COUNT(*) AS n FROM job
      WHERE dealId = ? AND status <> 'completed' AND (slot < ? OR (slot = ? AND flat < ?))`,
@@ -671,6 +738,91 @@ export function queueAhead(dealId: string, jobId: string) {
   )!.n;
   const view = getDealView(dealId)!;
   return { ahead, etaMin: ahead * view.sku.durationMin };
+}
+
+// -------------------------------------------------------------- revisits
+
+const REVISIT_VIEW = `
+  SELECT r.*, d.dealId, d.userId AS residentId, d.reason, d.detail, trim(substr(d.resolution, 9)) AS instructions,
+         j.memberId, j.flat, j.technician, u.name AS residentName, s.name AS serviceName,
+         soc.name AS societyName, dl.vendorId, v.name AS vendorName
+  FROM revisit r
+  JOIN dispute d ON d.id = r.disputeId
+  JOIN job j ON j.id = d.jobId
+  JOIN deal dl ON dl.id = d.dealId
+  JOIN sku s ON s.id = dl.skuId
+  JOIN society soc ON soc.id = dl.societyId
+  JOIN vendor v ON v.id = dl.vendorId
+  JOIN user u ON u.id = d.userId
+`;
+const REVISIT_ORDER = "ORDER BY r.createdAt DESC, r.id";
+
+export function revisitsForResident(userId: string) {
+  return all<RevisitVisit>(`${REVISIT_VIEW} WHERE d.userId = ? ${REVISIT_ORDER}`, userId);
+}
+
+export function revisitsForVendor(vendorId: string) {
+  return all<RevisitVisit>(`${REVISIT_VIEW} WHERE dl.vendorId = ? ${REVISIT_ORDER}`, vendorId);
+}
+
+export function revisitsForOps() {
+  return all<RevisitVisit>(`${REVISIT_VIEW} ${REVISIT_ORDER}`);
+}
+
+export function scheduleRevisit(jobId: string, serviceDate: string, slot: string) {
+  if (!isValidRevisitDate(serviceDate) || serviceDate < revisitToday()) {
+    throw new DealError("Pick today or a future date for the revisit.");
+  }
+  if (!REVISIT_SLOTS.some((window) => window === slot)) throw new DealError("Pick a valid appointment window.");
+
+  return dealTransaction(() => {
+    const visit = one<RevisitVisit>(`${REVISIT_VIEW} WHERE r.id = ?`, jobId);
+    if (!visit) throw new DealError("Revisit not found.");
+    if (visit.status !== "awaiting_schedule" && visit.status !== "scheduled") {
+      throw new DealError("This revisit has already started.");
+    }
+    if (visit.serviceDate === serviceDate && visit.slot === slot) return visit.dealId;
+
+    run("UPDATE revisit SET status = 'scheduled', serviceDate = ?, slot = ? WHERE id = ?", serviceDate, slot, visit.id);
+    const rescheduled = visit.status === "scheduled";
+    logEvent(visit.dealId, rescheduled ? "revisit_rescheduled" : "revisit_scheduled", { jobId, serviceDate, slot });
+    notify([visit.residentId], {
+      type: "revisit_scheduled",
+      dealId: visit.dealId,
+      title: rescheduled ? "Your revisit was rescheduled" : "Your revisit is booked",
+      body: `${visit.vendorName} · ${formatRevisitDate(serviceDate)} · ${slot}. Your visit codes are in My bookings.`,
+    });
+    return visit.dealId;
+  });
+}
+
+function startRevisit(visit: RevisitVisit, otp: string) {
+  if (visit.status !== "scheduled") throw new DealError("Only a scheduled revisit can be started.");
+  if (!isRevisitDue(visit.serviceDate)) throw new DealError("This revisit can start on the booked date.");
+  if (otp.trim() !== visit.startOtp) throw new DealError("That start code doesn't match.");
+  run("UPDATE revisit SET status = 'in_progress', startedAt = ? WHERE id = ?", now(), visit.id);
+  logEvent(visit.dealId, "revisit_started", { jobId: visit.id });
+  notify([visit.residentId], {
+    type: "revisit_started",
+    dealId: visit.dealId,
+    title: "Your revisit has started",
+    body: "Open My bookings for the completion code when the work is finished.",
+  });
+  return visit.dealId;
+}
+
+function completeRevisit(visit: RevisitVisit, otp: string) {
+  if (visit.status !== "in_progress") throw new DealError("Only a revisit in progress can be completed.");
+  if (otp.trim() !== visit.endOtp) throw new DealError("That completion code doesn't match.");
+  run("UPDATE revisit SET status = 'completed', finishedAt = ? WHERE id = ?", now(), visit.id);
+  logEvent(visit.dealId, "revisit_completed", { jobId: visit.id });
+  notify([visit.residentId], {
+    type: "revisit_completed",
+    dealId: visit.dealId,
+    title: "Your revisit is complete",
+    body: "You can find the completed visit in My bookings.",
+  });
+  return visit.dealId;
 }
 
 // -------------------------------------------------------------- payments
@@ -692,7 +844,16 @@ export function paymentsForMember(memberId: string) {
 
 // -------------------------------------------------------------- disputes
 
+export function issueWindowOpen(warrantyDays: number, finishedAt: string | null) {
+  const warrantyMs = Math.max(2, warrantyDays) * DAY;
+  return Date.now() - new Date(finishedAt ?? now()).getTime() <= warrantyMs;
+}
+
 export function raiseDispute(args: { jobId: string; userId: string; reason: string; detail: string }) {
+  return dealTransaction(() => raiseJobIssue(args));
+}
+
+function raiseJobIssue(args: { jobId: string; userId: string; reason: string; detail: string }) {
   const job = one<{ id: string; dealId: string; status: string; finishedAt: string | null; memberId: string }>(
     "SELECT * FROM job WHERE id = ?", args.jobId,
   );
@@ -702,10 +863,8 @@ export function raiseDispute(args: { jobId: string; userId: string; reason: stri
   if (existing) throw new DealError("You already have an open issue on this job.");
 
   const view = getDealView(job.dealId)!;
-  const warrantyMs = Math.max(2, view.sku.warrantyDays) * DAY;
-  const finished = new Date(job.finishedAt ?? now()).getTime();
-  if (Date.now() - finished > warrantyMs) {
-    throw new DealError(`The ${view.sku.warrantyDays}-day warranty window on this job has closed.`);
+  if (!issueWindowOpen(view.sku.warrantyDays, job.finishedAt)) {
+    throw new DealError("The issue reporting and warranty window on this job has closed.");
   }
 
   const member = view.members.find((m) => m.id === job.memberId);
@@ -730,31 +889,62 @@ export function raiseDispute(args: { jobId: string; userId: string; reason: stri
 }
 
 export function resolveDispute(disputeId: string, resolution: "refund" | "revisit" | "rejected", note: string) {
-  const d = one<{ id: string; jobId: string; dealId: string; userId: string; amountPaise: number; status: string }>(
-    "SELECT * FROM dispute WHERE id = ?", disputeId,
-  );
-  if (!d) throw new DealError("Issue not found.");
-  if (d.status !== "open") throw new DealError("That issue is already closed.");
+  return dealTransaction(() => {
+    const d = one<{ jobId: string; dealId: string; userId: string; amountPaise: number; status: string }>(
+      "SELECT * FROM dispute WHERE id = ?", disputeId,
+    );
+    if (!d) throw new DealError("Issue not found.");
+    if (d.status !== "open") throw new DealError("That issue is already closed.");
 
-  run(
-    "UPDATE dispute SET status='resolved', resolution=?, resolvedAt=? WHERE id = ?",
-    `${resolution}: ${note.slice(0, 300)}`, now(), disputeId,
-  );
+    if (resolution === "revisit") {
+      const original = one<{ startOtp: string; endOtp: string }>(
+        "SELECT startOtp, endOtp FROM job WHERE id = ? AND status = 'completed'", d.jobId,
+      );
+      if (!original) throw new DealError("The original visit must be completed before approving a revisit.");
+      if (one(
+        `SELECT r.id FROM revisit r JOIN dispute d ON d.id = r.disputeId
+         WHERE d.jobId = ? AND r.status <> 'completed' LIMIT 1`,
+        d.jobId,
+      )) {
+        throw new DealError("A revisit is already pending or underway for this booking.");
+      }
+      const revisitId = id("visit");
+      run(
+        "INSERT INTO revisit (id, disputeId, startOtp, endOtp, createdAt) VALUES (?, ?, ?, ?, ?)",
+        revisitId, disputeId, ...newRevisitCodes(original.startOtp, original.endOtp), now(),
+      );
+      logEvent(d.dealId, "revisit_requested", { disputeId, jobId: revisitId });
+    }
 
-  const job = one<{ memberId: string }>("SELECT memberId FROM job WHERE id = ?", d.jobId);
-  if (resolution === "refund" && job) {
-    const member = one<{ paymentMethod: string }>("SELECT paymentMethod FROM deal_member WHERE id = ?", job.memberId);
-    recordPayment(job.memberId, d.dealId, "refund", member?.paymentMethod ?? "upi", d.amountPaise, "refunded");
-  }
+    if (resolution === "refund") {
+      const member = one<{ id: string; paymentMethod: string }>(
+        "SELECT m.id, m.paymentMethod FROM job j JOIN deal_member m ON m.id = j.memberId WHERE j.id = ?", d.jobId,
+      );
+      if (!member) throw new DealError("Could not find the booking to refund.");
+      if (one("SELECT id FROM payment WHERE memberId = ? AND type='refund' AND status='refunded'", member.id)) {
+        throw new DealError("This booking was already refunded.");
+      }
+      recordPayment(member.id, d.dealId, "refund", member.paymentMethod, d.amountPaise, "refunded");
+    }
 
-  const titles: Record<string, string> = {
-    refund: "Your refund is on the way",
-    revisit: "The vendor will revisit",
-    rejected: "We looked into your issue",
-  };
-  notify([d.userId], { type: "dispute_resolved", dealId: d.dealId, title: titles[resolution], body: note });
-  logEvent(d.dealId, "dispute_resolved", { disputeId, resolution });
-  return disputeId;
+    run(
+      "UPDATE dispute SET status='resolved', resolution=?, resolvedAt=? WHERE id = ?",
+      `${resolution}: ${note.slice(0, 300)}`, now(), disputeId,
+    );
+    const titles = {
+      refund: "Your refund is on the way",
+      revisit: "Ops approved a revisit",
+      rejected: "We looked into your issue",
+    };
+    notify([d.userId], {
+      type: resolution === "revisit" ? "revisit_requested" : "dispute_resolved",
+      dealId: d.dealId,
+      title: titles[resolution],
+      body: resolution === "revisit" ? "Your vendor will schedule the visit. Follow updates in My bookings." : note,
+    });
+    logEvent(d.dealId, "dispute_resolved", { disputeId, resolution });
+    return disputeId;
+  });
 }
 
 export function disputesForUser(userId: string) {

@@ -20,9 +20,32 @@ const ICONS: Record<string, string> = {
   approval_needed: "!",
   dispute: "!",
   dispute_resolved: "✓",
+  revisit_requested: "↻",
+  revisit_scheduled: "⏱",
+  revisit_started: "→",
+  revisit_completed: "✓",
   repeat_due: "↻",
+  society_complaint: "!",
+  society_notice: "●",
+  society_dues_reminder: "₹",
+  gate_request: "→",
 };
 
+const SOCIETY_UPDATES: Record<string, string> = {
+  society_complaint: "/society/complaints",
+  society_notice: "/society/community",
+  society_meeting: "/society/community",
+  society_poll: "/society/community",
+  society_dues_reminder: "/society/finance",
+  gate_request: "/society/visitors",
+};
+
+const BOOKING_UPDATES = new Set([
+  "locked", "service_day", "job_done", "dispute_resolved",
+  "revisit_requested", "revisit_scheduled", "revisit_started", "revisit_completed",
+]);
+
+const SUCCESS_UPDATES = new Set(["price_drop", "locked", "job_done", "revisit_completed"]);
 
 export default async function NotificationsPage() {
   const me = await getMe();
@@ -49,7 +72,7 @@ export default async function NotificationsPage() {
           <div className="card p-6 text-center">
             <p className="font-bold mb-1">Nothing yet</p>
             <p className="text-sm text-ink-500">
-              Price drops, confirmations and service-day updates land here.
+              Booking and society updates land here.
             </p>
           </div>
         )}
@@ -60,7 +83,7 @@ export default async function NotificationsPage() {
               <span
                 aria-hidden="true"
                 className={`w-9 h-9 rounded-full grid place-items-center font-bold shrink-0 ${
-                  n.type === "price_drop" || n.type === "locked" || n.type === "job_done"
+                  SUCCESS_UPDATES.has(n.type)
                     ? "bg-save-50 text-save-700"
                     : n.type === "expired" || n.type === "dispute"
                       ? "bg-canvas-alt text-ink-500"
@@ -77,8 +100,11 @@ export default async function NotificationsPage() {
               {!n.readAt && <span className="w-2 h-2 rounded-full bg-brand-600 mt-2" aria-label="Unread" />}
             </>
           );
-          return n.dealId ? (
-            <Link key={n.id} href={`/deal/${n.dealId}`} className="card p-3 flex gap-3 items-start">
+          const href = n.dealId
+            ? BOOKING_UPDATES.has(n.type) ? `/bookings#booking-${n.dealId}` : `/deal/${n.dealId}`
+            : SOCIETY_UPDATES[n.type];
+          return href ? (
+            <Link key={n.id} href={href} className="card p-3 flex gap-3 items-start">
               {body}
             </Link>
           ) : (
