@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">JODO</string>
+    <string name="open_jodo">Open JODO</string>
+    <string name="browser_required">Install or enable a web browser to open JODO.</string>
+    <color name="jodo_brand">#156348</color>
+    <color name="jodo_canvas">#F7F6F0</color>
+    <color name="jodo_ink">#132C24</color>
+    <style name="Theme.Jodo" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">@color/jodo_brand</item>
+        <item name="android:windowBackground">@color/jodo_canvas</item>
+        <item name="android:statusBarColor">@color/jodo_canvas</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">@color/jodo_ink</item>
+    </style>
+</resources>
