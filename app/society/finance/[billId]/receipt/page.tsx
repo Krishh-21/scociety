@@ -10,7 +10,7 @@ export default async function ReceiptPage({ params, searchParams }: {
   params: Promise<{ billId: string }>; searchParams: Promise<{ view?: string }>;
 }) {
   const [{ billId }, { view }, { me, residency }] = await Promise.all([params, searchParams, financePageActor()]);
-  const bill = financeBill(me, billId);
+  const bill = await financeBill(me, billId);
   if (!bill?.payment) notFound();
   const { payment } = bill;
 

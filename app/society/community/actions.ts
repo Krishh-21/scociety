@@ -15,9 +15,9 @@ function field(form: FormData, name: string) {
   return typeof value === "string" ? value : "";
 }
 
-async function changeCommunity(change: (me: Me | null) => void, ok: string, refreshNotice = false): Promise<ActionState> {
+async function changeCommunity(change: (me: Me | null) => Promise<unknown>, ok: string, refreshNotice = false): Promise<ActionState> {
   try {
-    change(await getMe());
+    await change(await getMe());
     revalidatePath("/society/community");
     if (refreshNotice) {
       revalidatePath("/society");

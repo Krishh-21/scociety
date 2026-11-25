@@ -11,24 +11,22 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
 
   return (
     <main className="min-h-screen bg-canvas-alt grid place-items-center px-5">
-      <div className="card p-6 max-w-[420px] w-full">
-        <p className="eyebrow mb-2">Something broke</p>
-        <h1 className="text-[22px] font-extrabold leading-snug mb-2">That didn&apos;t load</h1>
+      <div className="card w-full max-w-md border-t-4 border-t-brand-600 p-6 sm:p-8">
+        <h1 className="mb-2 text-2xl font-extrabold tracking-tight">This page couldn&apos;t load</h1>
         <p className="text-sm text-ink-700 mb-4">
-          Nothing was charged and no group changed — this is a display error. Try again, and if it keeps happening send
-          ops the code below.
+          Try again. If the problem continues, contact support{error.digest ? " with the reference below" : ""}.
         </p>
         {error.digest && (
           <p className="tnum text-[12px] text-ink-500 mb-4">
             Reference: <strong>{error.digest}</strong>
           </p>
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button className="btn btn-primary flex-1" onClick={reset}>
             Try again
           </button>
           <Link href="/" className="btn btn-quiet flex-1">
-            Back to app
+            Back to JODO
           </Link>
         </div>
       </div>

@@ -7,21 +7,25 @@
     "build": "next build",
     "start": "next start -p 3127",
     "seed": "node scripts/reset-db.mjs",
+    "db:hosted": "tsx scripts/init-postgres.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "next": "15.5.4",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "next": "15.5.29",
+    "pg": "^8.23.1",
+    "react": "19.1.10",
+    "react-dom": "19.1.10"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.13",
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^4.1.13",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.3",
     "vitest": "^3.2.4"
   }

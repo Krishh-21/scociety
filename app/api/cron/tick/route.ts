@@ -3,22 +3,16 @@ import { tick } from "@/lib/deals";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Closing a deal captures money and creates jobs, so it must not depend on
- * somebody loading a page. Point a scheduler at this route (every minute is
- * plenty); in development instrumentation.ts calls tick() on a timer instead.
- *
- * Set JODO_CRON_SECRET to require `Authorization: Bearer <secret>`.
- */
+// Vercel Cron calls GET with CRON_SECRET. Manual schedulers can also use POST
+// and send either configured secret in the Authorization header.
 async function run(req: Request) {
-  const secret = process.env.JODO_CRON_SECRET;
-  if (secret) {
-    const header = req.headers.get("authorization") ?? "";
-    if (header !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "unauthorised" }, { status: 401 });
-    }
+  const secrets = [process.env.CRON_SECRET, process.env.JODO_CRON_SECRET].filter(Boolean);
+  const requiresAuth = secrets.length > 0 || process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
+  const header = req.headers.get("authorization");
+  if (requiresAuth && !secrets.some((secret) => header === `Bearer ${secret}`)) {
+    return NextResponse.json({ error: "unauthorised" }, { status: 401 });
   }
-  const closed = tick();
+  const closed = await tick();
   return NextResponse.json({ ok: true, closed, at: new Date().toISOString() });
 }
 

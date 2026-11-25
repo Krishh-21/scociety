@@ -48,18 +48,18 @@ const NOTICE_QUERY = `
   LEFT JOIN sku ON sku.id = d.skuId
   WHERE n.societyId = ?`;
 
-export function getPinnedNotice(societyId: string) {
+export async function getPinnedNotice(societyId: string) {
   return one<SocietyNotice>(`${NOTICE_QUERY} AND n.pinned = 1`, new Date().toISOString(), societyId);
 }
 
-export function listSocietyNotices(societyId: string) {
+export async function listSocietyNotices(societyId: string) {
   return all<SocietyNotice>(
     `${NOTICE_QUERY} ORDER BY n.pinned DESC, n.createdAt DESC, n.id DESC`,
     new Date().toISOString(), societyId,
   );
 }
 
-export function listNoticeBookingChoices(societyId: string) {
+export async function listNoticeBookingChoices(societyId: string) {
   return all<{ id: string; name: string; serviceDate: string }>(
     `SELECT d.id, sku.name, d.serviceDate FROM deal d JOIN sku ON sku.id = d.skuId
      WHERE d.societyId = ? AND d.status = 'open' AND d.joinDeadline > ? ORDER BY d.serviceDate, d.id`,
@@ -67,7 +67,7 @@ export function listNoticeBookingChoices(societyId: string) {
   );
 }
 
-export function publishSocietyNotice(me: Me | null, input: {
+export async function publishSocietyNotice(me: Me | null, input: {
   title: string; body: string; pinned: boolean; dealId?: string;
 }) {
   const { societyId, userId } = requireSocietyCommittee(me);
@@ -76,25 +76,25 @@ export function publishSocietyNotice(me: Me | null, input: {
   const dealId = input.dealId?.trim() || null;
   const noticeId = id("notice");
   const now = new Date().toISOString();
-  inTransaction(() => {
-    if (dealId && !one("SELECT id FROM deal WHERE id = ? AND societyId = ? AND status = 'open' AND joinDeadline > ?", dealId, societyId, now)) {
+  await inTransaction(async () => {
+    if (dealId && !(await one("SELECT id FROM deal WHERE id = ? AND societyId = ? AND status = 'open' AND joinDeadline > ?", dealId, societyId, now))) {
       throw new SocietyCommunityError("Choose an open group in your society.");
     }
-    if (input.pinned) run("UPDATE society_notice SET pinned = 0 WHERE societyId = ? AND pinned = 1", societyId);
-    run(`INSERT INTO society_notice (id, societyId, authorId, title, body, dealId, pinned, createdAt)
+    if (input.pinned) await run("UPDATE society_notice SET pinned = 0 WHERE societyId = ? AND pinned = 1", societyId);
+    await run(`INSERT INTO society_notice (id, societyId, authorId, title, body, dealId, pinned, createdAt)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, noticeId, societyId, userId, title, body, dealId, Number(input.pinned), now);
-    notify(societyResidentIds(societyId, userId), {
+    await notify(await societyResidentIds(societyId, userId), {
       type: "society_notice", title, body: body.length > 160 ? `${body.slice(0, 159).trimEnd()}…` : body,
     });
   });
   return noticeId;
 }
 
-export function setSocietyNoticePinned(me: Me | null, noticeId: string, pinned: boolean) {
+export async function setSocietyNoticePinned(me: Me | null, noticeId: string, pinned: boolean) {
   const { societyId } = requireSocietyCommittee(me);
-  inTransaction(() => {
-    if (pinned) run("UPDATE society_notice SET pinned = 0 WHERE societyId = ? AND pinned = 1", societyId);
-    const result = run("UPDATE society_notice SET pinned = ? WHERE id = ? AND societyId = ?", Number(pinned), noticeId, societyId);
+  await inTransaction(async () => {
+    if (pinned) await run("UPDATE society_notice SET pinned = 0 WHERE societyId = ? AND pinned = 1", societyId);
+    const result = await run("UPDATE society_notice SET pinned = ? WHERE id = ? AND societyId = ?", Number(pinned), noticeId, societyId);
     if (!result.changes) throw new SocietyCommunityError("This notice is unavailable.");
   });
 }
@@ -115,7 +115,7 @@ export type SocietyMeeting = {
 
 export type SocietyMeetingWithAttendance = SocietyMeeting & { myResponse: MeetingResponse | null; attending: number };
 
-export function listSocietyMeetings(societyId: string, viewerId: string) {
+export async function listSocietyMeetings(societyId: string, viewerId: string) {
   const now = new Date().toISOString();
   return all<SocietyMeetingWithAttendance>(
     `SELECT m.*, author.name AS authorName, r.response AS myResponse,
@@ -128,7 +128,7 @@ export function listSocietyMeetings(societyId: string, viewerId: string) {
   );
 }
 
-export function getSocietyMeeting(societyId: string, meetingId: string) {
+export async function getSocietyMeeting(societyId: string, meetingId: string) {
   return one<SocietyMeeting>(
     `SELECT m.*, author.name AS authorName FROM society_meeting m
      JOIN user author ON author.id = m.authorId WHERE m.id = ? AND m.societyId = ?`,
@@ -136,7 +136,7 @@ export function getSocietyMeeting(societyId: string, meetingId: string) {
   );
 }
 
-export function scheduleSocietyMeeting(me: Me | null, input: {
+export async function scheduleSocietyMeeting(me: Me | null, input: {
   title: string; agenda: string; startsAt: string; location?: string;
 }) {
   const { societyId, userId } = requireSocietyCommittee(me);
@@ -146,20 +146,20 @@ export function scheduleSocietyMeeting(me: Me | null, input: {
   const startsAt = localDateTime(input.startsAt, "meeting date and time");
   if (startsAt <= new Date().toISOString()) throw new SocietyCommunityError("Choose a future meeting time.");
   const meetingId = id("meeting");
-  inTransaction(() => {
-    run(`INSERT INTO society_meeting (id, societyId, authorId, title, agenda, location, startsAt)
+  await inTransaction(async () => {
+    await run(`INSERT INTO society_meeting (id, societyId, authorId, title, agenda, location, startsAt)
          VALUES (?, ?, ?, ?, ?, ?, ?)`, meetingId, societyId, userId, title, agenda, location, startsAt);
-    notify(societyResidentIds(societyId, userId), {
+    await notify(await societyResidentIds(societyId, userId), {
       type: "society_meeting", title, body: `${formatSocietyDateTime(startsAt)} IST${location ? ` · ${location}` : ""}`,
     });
   });
   return meetingId;
 }
 
-export function rsvpToSocietyMeeting(me: Me | null, meetingId: string, response: string) {
+export async function rsvpToSocietyMeeting(me: Me | null, meetingId: string, response: string) {
   const { societyId, userId } = requireSocietyMember(me);
   if (response !== "going" && response !== "not_going") throw new SocietyCommunityError("Choose an RSVP response.");
-  const result = run(
+  const result = await run(
     `INSERT INTO society_meeting_rsvp (meetingId, userId, response)
      SELECT id, ?, ? FROM society_meeting WHERE id = ? AND societyId = ? AND startsAt > ?
      ON CONFLICT(meetingId, userId) DO UPDATE SET response = excluded.response`,
@@ -168,24 +168,24 @@ export function rsvpToSocietyMeeting(me: Me | null, meetingId: string, response:
   if (!result.changes) throw new SocietyCommunityError("You can only RSVP to an upcoming meeting in your society.");
 }
 
-export function publishSocietyMinutes(me: Me | null, meetingId: string, value: string) {
+export async function publishSocietyMinutes(me: Me | null, meetingId: string, value: string) {
   const { societyId } = requireSocietyCommittee(me);
   const minutes = textField(value, "the minutes", 20000);
   const now = new Date().toISOString();
-  const result = run(
+  const result = await run(
     `UPDATE society_meeting SET minutes = ?, minutesPublishedAt = ? WHERE id = ? AND societyId = ? AND startsAt <= ?`,
     minutes, now, meetingId, societyId, now,
   );
   if (!result.changes) throw new SocietyCommunityError("Minutes can only be published once a meeting in your society has started.");
 }
 
-export function recordSocietyAttendance(me: Me | null, meetingId: string, value: string) {
+export async function recordSocietyAttendance(me: Me | null, meetingId: string, value: string) {
   const { societyId } = requireSocietyCommittee(me);
   const attendance = Number(value);
   if (!/^\d+$/.test(value) || !Number.isSafeInteger(attendance)) {
     throw new SocietyCommunityError("Enter attendance as a whole number of zero or more.");
   }
-  const result = run(
+  const result = await run(
     `UPDATE society_meeting SET actualAttendance = ? WHERE id = ? AND societyId = ? AND startsAt <= ?`,
     attendance, meetingId, societyId, new Date().toISOString(),
   );
@@ -196,14 +196,14 @@ type PollOption = { id: string; label: string; votes: number };
 type PollRecord = { id: string; question: string; closedAt: string | null; myVote: string | null };
 export type SocietyPoll = PollRecord & { options: PollOption[] };
 
-export function listSocietyPolls(societyId: string, viewerId: string): SocietyPoll[] {
-  const polls = all<PollRecord>(
+export async function listSocietyPolls(societyId: string, viewerId: string): Promise<SocietyPoll[]> {
+  const polls = await all<PollRecord>(
     `SELECT p.id, p.question, p.closedAt, mine.optionId AS myVote
      FROM society_poll p LEFT JOIN society_poll_vote mine ON mine.pollId = p.id AND mine.userId = ?
      WHERE p.societyId = ? ORDER BY (p.closedAt IS NULL) DESC, p.createdAt DESC, p.id`,
     viewerId, societyId,
   );
-  const options = all<PollOption & { pollId: string }>(
+  const options = await all<PollOption & { pollId: string }>(
     `SELECT o.id, o.pollId, o.label, COUNT(v.userId) AS votes
      FROM society_poll_option o JOIN society_poll p ON p.id = o.pollId
      LEFT JOIN society_poll_vote v ON v.pollId = o.pollId AND v.optionId = o.id
@@ -219,7 +219,7 @@ export function listSocietyPolls(societyId: string, viewerId: string): SocietyPo
   return polls.map((poll) => ({ ...poll, options: optionsByPoll.get(poll.id) ?? [] }));
 }
 
-export function createSocietyPoll(me: Me | null, value: string, values: string[]) {
+export async function createSocietyPoll(me: Me | null, value: string, values: string[]) {
   const { societyId, userId } = requireSocietyCommittee(me);
   const question = textField(value, "a question", 200);
   const options = values.map((option) => option.trim()).filter(Boolean);
@@ -228,20 +228,20 @@ export function createSocietyPoll(me: Me | null, value: string, values: string[]
   }
   if (options.some((option) => option.length > 100)) throw new SocietyCommunityError("Keep each option within 100 characters.");
   const pollId = id("poll");
-  inTransaction(() => {
-    run(`INSERT INTO society_poll (id, societyId, authorId, question, createdAt) VALUES (?, ?, ?, ?, ?)`,
+  await inTransaction(async () => {
+    await run(`INSERT INTO society_poll (id, societyId, authorId, question, createdAt) VALUES (?, ?, ?, ?, ?)`,
       pollId, societyId, userId, question, new Date().toISOString());
     for (const [position, label] of options.entries()) {
-      run(`INSERT INTO society_poll_option (id, pollId, label, position) VALUES (?, ?, ?, ?)`,
+      await run(`INSERT INTO society_poll_option (id, pollId, label, position) VALUES (?, ?, ?, ?)`,
         id("option"), pollId, label, position);
     }
   });
   return pollId;
 }
 
-export function voteInSocietyPoll(me: Me | null, pollId: string, optionId: string) {
+export async function voteInSocietyPoll(me: Me | null, pollId: string, optionId: string) {
   const { societyId, userId } = requireSocietyMember(me);
-  const result = run(
+  const result = await run(
     `INSERT INTO society_poll_vote (pollId, optionId, userId)
      SELECT p.id, o.id, ? FROM society_poll p JOIN society_poll_option o ON o.pollId = p.id
      WHERE p.id = ? AND p.societyId = ? AND p.closedAt IS NULL AND o.id = ?
@@ -250,18 +250,18 @@ export function voteInSocietyPoll(me: Me | null, pollId: string, optionId: strin
   );
   if (result.changes) return;
 
-  const poll = one<{ closedAt: string | null }>("SELECT closedAt FROM society_poll WHERE id = ? AND societyId = ?", pollId, societyId);
+  const poll = await one<{ closedAt: string | null }>("SELECT closedAt FROM society_poll WHERE id = ? AND societyId = ?", pollId, societyId);
   if (!poll) throw new SocietyCommunityError("This poll is unavailable.");
   if (poll.closedAt) throw new SocietyCommunityError("Voting has closed.");
-  if (one("SELECT 1 FROM society_poll_vote WHERE pollId = ? AND userId = ?", pollId, userId)) {
+  if (await one("SELECT 1 FROM society_poll_vote WHERE pollId = ? AND userId = ?", pollId, userId)) {
     throw new SocietyCommunityError("You have already voted in this poll.");
   }
   throw new SocietyCommunityError("Choose an option from this poll.");
 }
 
-export function closeSocietyPoll(me: Me | null, pollId: string) {
+export async function closeSocietyPoll(me: Me | null, pollId: string) {
   const { societyId } = requireSocietyCommittee(me);
-  const result = run("UPDATE society_poll SET closedAt = coalesce(closedAt, ?) WHERE id = ? AND societyId = ?",
+  const result = await run("UPDATE society_poll SET closedAt = coalesce(closedAt, ?) WHERE id = ? AND societyId = ?",
     new Date().toISOString(), pollId, societyId);
   if (!result.changes) throw new SocietyCommunityError("This poll is unavailable.");
 }
@@ -270,12 +270,12 @@ type AmenityReservation = { id: string; startsAt: string; endsAt: string; mine: 
 type AmenityRecord = { id: string; name: string; description: string };
 export type SocietyAmenity = AmenityRecord & { reservations: AmenityReservation[] };
 
-export function listSocietyAmenities(societyId: string, viewerId: string): SocietyAmenity[] {
-  const amenities = all<AmenityRecord>(
-    "SELECT id, name, description FROM society_amenity WHERE societyId = ? ORDER BY name", societyId,
+export async function listSocietyAmenities(societyId: string, viewerId: string): Promise<SocietyAmenity[]> {
+  const amenities = await all<AmenityRecord>(
+    "SELECT id, name, description FROM society_amenity WHERE societyId = ? ORDER BY lower(name)", societyId,
   );
-  const reservations = all<AmenityReservation & { amenityId: string }>(
-    `SELECT r.id, r.amenityId, r.startsAt, r.endsAt, (r.userId = ?) AS mine
+  const reservations = await all<AmenityReservation & { amenityId: string }>(
+    `SELECT r.id, r.amenityId, r.startsAt, r.endsAt, CASE WHEN r.userId = ? THEN 1 ELSE 0 END AS mine
      FROM society_amenity_reservation r JOIN society_amenity a ON a.id = r.amenityId
      WHERE a.societyId = ? AND r.endsAt > ? ORDER BY r.startsAt, r.id`,
     viewerId, societyId, new Date().toISOString(),
@@ -289,20 +289,20 @@ export function listSocietyAmenities(societyId: string, viewerId: string): Socie
   return amenities.map((amenity) => ({ ...amenity, reservations: reservationsByAmenity.get(amenity.id) ?? [] }));
 }
 
-export function createSocietyAmenity(me: Me | null, nameValue: string, descriptionValue: string) {
+export async function createSocietyAmenity(me: Me | null, nameValue: string, descriptionValue: string) {
   const { societyId } = requireSocietyCommittee(me);
   const name = textField(nameValue, "an amenity name", 100);
   const description = textField(descriptionValue, "the description", 1000, false);
   const amenityId = id("amenity");
-  const result = run(
+  const result = await run(
     `INSERT INTO society_amenity (id, societyId, name, description) VALUES (?, ?, ?, ?)
-     ON CONFLICT(societyId, name) DO NOTHING`, amenityId, societyId, name, description,
+     ON CONFLICT DO NOTHING`, amenityId, societyId, name, description,
   );
   if (!result.changes) throw new SocietyCommunityError("An amenity with this name already exists.");
   return amenityId;
 }
 
-export function reserveSocietyAmenity(me: Me | null, input: { amenityId: string; startsAt: string; endsAt: string }) {
+export async function reserveSocietyAmenity(me: Me | null, input: { amenityId: string; startsAt: string; endsAt: string }) {
   const { societyId, userId } = requireSocietyMember(me);
   const startsAt = localDateTime(input.startsAt, "start date and time");
   const endsAt = localDateTime(input.endsAt, "end date and time");
@@ -310,14 +310,17 @@ export function reserveSocietyAmenity(me: Me | null, input: { amenityId: string;
   if (endsAt <= startsAt) throw new SocietyCommunityError("The end time must be after the start time.");
   const reservationId = id("reservation");
   try {
-    const result = run(
+    const result = await run(
       `INSERT INTO society_amenity_reservation (id, amenityId, userId, startsAt, endsAt)
        SELECT ?, id, ?, ?, ? FROM society_amenity WHERE id = ? AND societyId = ?`,
       reservationId, userId, startsAt, endsAt, input.amenityId, societyId,
     );
     if (!result.changes) throw new SocietyCommunityError("This amenity is unavailable.");
   } catch (error) {
-    if (error instanceof Error && error.message === "amenity reservation overlaps") {
+    if (error instanceof Error && (
+      error.message === "amenity reservation overlaps" ||
+      ("constraint" in error && error.constraint === "jodo_amenity_reservation_overlap")
+    )) {
       throw new SocietyCommunityError("This time is already reserved. Choose another time.");
     }
     throw error;
@@ -325,9 +328,9 @@ export function reserveSocietyAmenity(me: Me | null, input: { amenityId: string;
   return reservationId;
 }
 
-export function cancelSocietyAmenityReservation(me: Me | null, reservationId: string) {
+export async function cancelSocietyAmenityReservation(me: Me | null, reservationId: string) {
   const { societyId, userId } = requireSocietyMember(me);
-  const result = run(
+  const result = await run(
     `DELETE FROM society_amenity_reservation WHERE id = ? AND userId = ? AND startsAt > ?
      AND amenityId IN (SELECT id FROM society_amenity WHERE societyId = ?)`,
     reservationId, userId, new Date().toISOString(), societyId,

@@ -24,8 +24,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f6f8fb" },
-    { media: "(prefers-color-scheme: dark)", color: "#0c1118" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f6f0" },
+    { media: "(prefers-color-scheme: dark)", color: "#101b17" },
   ],
 };
 
@@ -52,7 +52,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           Skip to content
         </a>
-        <div id="main">{children}</div>
+        <div id="main" tabIndex={-1}>{children}</div>
       </body>
     </html>
   );

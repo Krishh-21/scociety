@@ -15,7 +15,7 @@ export default async function ProfilePage() {
   const me = await getMe();
   if (!me) redirect("/login");
   const t = translator(me.user.lang);
-  const bookings = myBookings(me.user.id);
+  const bookings = await myBookings(me.user.id);
   const saved = bookings.reduce((sum, d) => {
     const units = d.joinedByMe?.units ?? 1;
     const paid = d.joinedByMe?.finalPricePaise ?? d.currentPricePaise;
@@ -25,87 +25,92 @@ export default async function ProfilePage() {
   return (
     <Phone>
       <AppHeader title="Profile" />
-      <div className="flex-1 px-4 py-4 flex flex-col gap-3">
-        <section className="card p-4 flex items-center gap-3">
-          <span className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-700 grid place-items-center text-[22px] font-extrabold">
+      <div className="flex-1 px-4 py-4 sm:px-6 lg:px-8 grid gap-4 content-start md:grid-cols-2 md:items-start">
+        <section className="jd-band p-5 sm:p-6 flex items-center gap-4 md:col-span-2" aria-label="Your account">
+          <span aria-hidden="true" className="w-16 h-16 shrink-0 rounded-2xl bg-[#dce99e] text-[#132c24] grid place-items-center text-[26px] font-extrabold">
             {me.user.name.slice(0, 1)}
           </span>
-          <div>
-            <p className="font-extrabold text-[17px]">{me.user.name}</p>
-            <p className="text-[13px] text-ink-500">
-              +91 {me.user.phone} · {me.user.role}
+          <div className="min-w-0">
+            <p className="font-extrabold text-[20px] leading-tight break-words">{me.user.name}</p>
+            <p className="text-[13px] jd-band__muted mt-0.5">
+              +91 <span className="tnum">{me.user.phone}</span> · <span className="capitalize">{me.user.role}</span>
             </p>
             {me.residency && (
-              <p className="text-[13px] text-ink-500">
+              <p className="text-[13px] jd-band__muted break-words">
                 {me.residency.societyName} · {me.residency.flat} ·{" "}
-                <span className="text-save-700 font-bold">verified</span>
+                <span className="text-[#dce99e] font-bold">verified</span>
               </p>
             )}
           </div>
         </section>
 
-        <section className="card p-4">
-          <p className="eyebrow mb-1">You have saved</p>
-          <p className="tnum text-[26px] font-extrabold text-save-700">{rupees(saved)}</p>
-          <p className="text-[13px] text-ink-500">across {bookings.length} group bookings.</p>
-        </section>
+        <div className="flex flex-col gap-4">
+          <section className="card p-4 sm:p-5">
+            <p className="eyebrow mb-1">You have saved</p>
+            <p className="tnum text-[30px] font-extrabold tracking-tight text-save-700">{rupees(saved)}</p>
+            <p className="text-[13px] text-ink-500">across {bookings.length} group bookings.</p>
+          </section>
 
-        <section className="card p-4 flex flex-col gap-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold">Language</p>
-              <p className="text-[12px] text-ink-500">App labels switch instantly</p>
-            </div>
-            <LanguageToggle current={me.user.lang} />
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold">Appearance</p>
-              <p className="text-[12px] text-ink-500">Follows your device by default</p>
-            </div>
-            <ThemeToggle />
-          </div>
-        </section>
-
-        <section className="card divide-y divide-[var(--color-line)]">
-          <Link href="/notifications" className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-bold">Notifications</p>
-              <p className="text-[12px] text-ink-500">Price drops, deadlines, service day</p>
-            </div>
-            <span className="text-ink-300">›</span>
-          </Link>
-          {[
-            ["Payment methods", "UPI AutoPay · HDFC ••4411"],
-            ["Refer your society", "₹500 credit when a neighbouring society books"],
-            ["Help & support", "Chat with JODO ops"],
-          ].map(([label, note]) => (
-            <div key={label} className="p-4 flex items-center justify-between">
+          <section className="card p-4 sm:p-5 flex flex-col gap-4" aria-labelledby="profile-preferences">
+            <h2 id="profile-preferences" className="jd-section-title">Preferences</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-bold">{label}</p>
-                <p className="text-[12px] text-ink-500">{note}</p>
+                <p className="text-sm font-bold">Language</p>
+                <p className="text-[12px] text-ink-500">App labels switch instantly</p>
               </div>
-              <span className="text-ink-300">›</span>
+              <LanguageToggle current={me.user.lang} />
             </div>
-          ))}
-        </section>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold">Appearance</p>
+                <p className="text-[12px] text-ink-500">Follows your device by default</p>
+              </div>
+              <ThemeToggle />
+            </div>
+          </section>
+        </div>
 
-        <section className="card p-4">
-          <p className="eyebrow mb-2">Other consoles in this build</p>
-          <div className="flex gap-2">
-            <Link href="/vendor" className="btn btn-quiet flex-1 h-10 min-h-10 text-[13px]">
-              Vendor
+        <div className="flex flex-col gap-4">
+          <section className="card divide-y divide-line overflow-hidden">
+            <Link href="/notifications" className="p-4 flex items-center justify-between gap-3 hover:bg-canvas-alt">
+              <div>
+                <p className="text-sm font-bold">Notifications</p>
+                <p className="text-[12px] text-ink-500">Price drops, deadlines, service day</p>
+              </div>
+              <span aria-hidden="true" className="text-ink-500 rtl:-scale-x-100">›</span>
             </Link>
-            <Link href="/ops" className="btn btn-quiet flex-1 h-10 min-h-10 text-[13px]">
-              Ops
-            </Link>
-          </div>
-        </section>
+            {[
+              ["Payment methods", "UPI AutoPay · HDFC ••4411"],
+              ["Refer your society", "₹500 credit when a neighbouring society books"],
+              ["Help & support", "Chat with JODO ops"],
+            ].map(([label, note]) => (
+              <div key={label} className="p-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold">{label}</p>
+                  <p className="text-[12px] text-ink-500">{note}</p>
+                </div>
+                <span aria-hidden="true" className="text-ink-300">›</span>
+              </div>
+            ))}
+          </section>
 
-        <form action={signOut}>
-          <button className="btn btn-quiet w-full">Sign out</button>
-        </form>
-        <div className="h-4" />
+          <section className="card p-4 sm:p-5">
+            <h2 className="eyebrow mb-2">Other consoles in this build</h2>
+            <div className="flex gap-2">
+              <Link href="/vendor" className="btn btn-quiet flex-1 min-h-10 text-[13px]">
+                Vendor
+              </Link>
+              <Link href="/ops" className="btn btn-quiet flex-1 min-h-10 text-[13px]">
+                Ops
+              </Link>
+            </div>
+          </section>
+
+          <form action={signOut}>
+            <button className="btn btn-quiet w-full">Sign out</button>
+          </form>
+        </div>
+        <div className="h-2 md:col-span-2" />
       </div>
       <TabBar active="profile" t={t} />
     </Phone>

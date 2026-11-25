@@ -15,8 +15,7 @@ export default async function StatementPage({ searchParams }: { searchParams: Pr
   const { month: selected } = await searchParams;
   const today = financeToday();
   const month = typeof selected === "string" && isFinanceMonth(selected) ? selected : today.slice(0, 7);
-  const bills = listFinanceBills(me, "society", { month });
-  const expenses = financeExpenses(me, month);
+  const [bills, expenses] = await Promise.all([listFinanceBills(me, "society", { month }), financeExpenses(me, month)]);
   const billed = bills.reduce((sum, bill) => sum + bill.totalPaise, 0);
   const collected = bills.reduce((sum, bill) => sum + (bill.paidOn ? bill.totalPaise : 0), 0);
   const spent = expenses.reduce((sum, expense) => sum + (expense.paidOn ? expense.amountPaise : 0), 0);

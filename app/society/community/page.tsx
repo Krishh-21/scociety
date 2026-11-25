@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { AppHeader, Phone } from "@/components/ui";
+import { AppHeader, Phone, TabBar } from "@/components/ui";
 import { formatDate } from "@/lib/pricing";
 import { getMe } from "@/lib/session";
 import { requireSocietyMember, SocietyAccessError } from "@/lib/society-access";
@@ -42,17 +42,19 @@ export default async function CommunityPage({ searchParams }: { searchParams: Pr
   const { societyId, societyName, userId } = membership;
   const { minutes } = await searchParams;
   if (typeof minutes === "string") {
-    const meeting = getSocietyMeeting(societyId, minutes);
+    const meeting = await getSocietyMeeting(societyId, minutes);
     if (!meeting?.minutes) notFound();
     return <MinutesDocument meeting={meeting} societyName={societyName} />;
   }
 
   const committee = me.user.role === "secretary";
-  const notices = listSocietyNotices(societyId);
-  const bookings = committee ? listNoticeBookingChoices(societyId) : [];
-  const meetings = listSocietyMeetings(societyId, userId);
-  const polls = listSocietyPolls(societyId, userId);
-  const amenities = listSocietyAmenities(societyId, userId);
+  const [notices, bookings, meetings, polls, amenities] = await Promise.all([
+    listSocietyNotices(societyId),
+    committee ? listNoticeBookingChoices(societyId) : [],
+    listSocietyMeetings(societyId, userId),
+    listSocietyPolls(societyId, userId),
+    listSocietyAmenities(societyId, userId),
+  ]);
   const now = new Date().toISOString();
 
   return (
@@ -147,6 +149,7 @@ export default async function CommunityPage({ searchParams }: { searchParams: Pr
           {amenities.map((amenity) => <AmenityCard key={amenity.id} amenity={amenity} now={now} />)}
         </Section>
       </main>
+      <TabBar active="society" mobile={false} />
     </Phone>
   );
 }

@@ -45,12 +45,12 @@ export async function verifyOtp(_prev: ActionState, form: FormData): Promise<Act
   }
   if (otp !== DEV_OTP) return { error: `Wrong code. In this build the code is always ${DEV_OTP}.` };
   otpAttemptsReset(phone);
-  const user = findOrCreateUser(phone);
-  if (user.role === "guard" && !one("SELECT userId FROM guard_assignment WHERE userId = ? AND isActive = 1", user.id)) {
+  const user = await findOrCreateUser(phone);
+  if (user.role === "guard" && !(await one("SELECT userId FROM guard_assignment WHERE userId = ? AND isActive = 1", user.id))) {
     return { error: "This guard account does not have active access. Contact your society committee." };
   }
   await createSession(user.id);
-  const residency = one("SELECT id FROM residency WHERE userId = ?", user.id);
+  const residency = await one("SELECT id FROM residency WHERE userId = ?", user.id);
   if (user.role === "vendor") redirect("/vendor");
   if (user.role === "ops") redirect("/ops");
   if (user.role === "guard") redirect("/society/visitors");
@@ -69,7 +69,7 @@ export async function saveResidency(_prev: ActionState, form: FormData): Promise
     if (me.user.role !== "resident" && me.user.role !== "secretary") {
       return { error: "Sign in with a resident account to verify a flat." };
     }
-    claimResidency({
+    await claimResidency({
       userId: me.user.id,
       name: String(form.get("name") ?? ""),
       societyId: String(form.get("societyId") ?? ""),
@@ -89,8 +89,8 @@ export async function joinAction(_prev: ActionState, form: FormData): Promise<Ac
     const me = await requireMe();
     if (!me.residency) return { error: "Verify your flat first." };
     const dealId = String(form.get("dealId"));
-    assertCan(me, { kind: "deal.join", dealId });
-    joinDeal({
+    await assertCan(me, { kind: "deal.join", dealId });
+    await joinDeal({
       dealId,
       userId: me.user.id,
       flat: me.residency.flat,
@@ -111,7 +111,7 @@ export async function leaveAction(_prev: ActionState, form: FormData): Promise<A
   try {
     const me = await requireMe();
     const dealId = String(form.get("dealId"));
-    leaveDeal(dealId, me.user.id);
+    await leaveDeal(dealId, me.user.id);
     revalidatePath(`/deal/${dealId}`);
     revalidatePath("/");
     return { ok: "left" };
@@ -124,8 +124,8 @@ export async function commentAction(_prev: ActionState, form: FormData): Promise
   try {
     const me = await requireMe();
     const dealId = String(form.get("dealId"));
-    assertCan(me, { kind: "deal.comment", dealId });
-    addComment(dealId, me.user.id, String(form.get("body") ?? ""));
+    await assertCan(me, { kind: "deal.comment", dealId });
+    await addComment(dealId, me.user.id, String(form.get("body") ?? ""));
     revalidatePath(`/deal/${dealId}`);
     return { ok: "posted" };
   } catch (e) {
@@ -138,7 +138,7 @@ export async function createDealAction(_prev: ActionState, form: FormData): Prom
   try {
     const me = await requireMe();
     if (!me.residency) return { error: "Verify your flat first." };
-    dealId = createDeal({
+    dealId = await createDeal({
       societyId: me.residency.societyId,
       skuId: String(form.get("skuId")),
       vendorId: String(form.get("vendorId")),
@@ -160,9 +160,9 @@ export async function simulateAction(_prev: ActionState, form: FormData): Promis
   try {
     const me = await requireMe();
     const dealId = String(form.get("dealId"));
-    assertCan(me, { kind: "deal.simulate", dealId });
+    await assertCan(me, { kind: "deal.simulate", dealId });
     const n = Number(form.get("count") ?? 1);
-    const { added } = simulateJoins(dealId, n);
+    const { added } = await simulateJoins(dealId, n);
     revalidatePath(`/deal/${dealId}`);
     revalidatePath("/");
     revalidatePath("/ops");
@@ -175,8 +175,8 @@ export async function simulateAction(_prev: ActionState, form: FormData): Promis
 export async function resetDemoAction(_prev: ActionState): Promise<ActionState> {
   try {
     const me = await requireMe();
-    assertCan(me, { kind: "demo.reset" });
-    resetAllData();
+    await assertCan(me, { kind: "demo.reset" });
+    await resetAllData();
     clearCatalogueCache();
     revalidatePath("/", "layout");
     return { ok: "Demo data reset — every group is back where the seed starts it" };
@@ -189,8 +189,8 @@ export async function lockAction(_prev: ActionState, form: FormData): Promise<Ac
   try {
     const me = await requireMe();
     const dealId = String(form.get("dealId"));
-    assertCan(me, { kind: "deal.lock", dealId });
-    lockDeal(dealId);
+    await assertCan(me, { kind: "deal.lock", dealId });
+    await lockDeal(dealId);
     revalidatePath(`/deal/${dealId}`);
     revalidatePath("/ops");
     revalidatePath("/");
@@ -204,8 +204,8 @@ export async function expireAction(_prev: ActionState, form: FormData): Promise<
   try {
     const me = await requireMe();
     const dealId = String(form.get("dealId"));
-    assertCan(me, { kind: "deal.expire", dealId });
-    expireDeal(dealId);
+    await assertCan(me, { kind: "deal.expire", dealId });
+    await expireDeal(dealId);
     revalidatePath(`/deal/${dealId}`);
     revalidatePath("/ops");
     return { ok: "Deal closed without charge" };
@@ -218,8 +218,8 @@ export async function startServiceAction(_prev: ActionState, form: FormData): Pr
   try {
     const me = await requireMe();
     const dealId = String(form.get("dealId"));
-    assertCan(me, { kind: "deal.start_service", dealId });
-    startService(dealId);
+    await assertCan(me, { kind: "deal.start_service", dealId });
+    await startService(dealId);
     revalidatePath(`/deal/${dealId}`);
     revalidatePath("/vendor");
     revalidatePath("/bookings");
@@ -233,8 +233,8 @@ export async function completeJobAction(_prev: ActionState, form: FormData): Pro
   try {
     const me = await requireMe();
     const jobId = String(form.get("jobId"));
-    assertCan(me, { kind: "job.complete", jobId });
-    const dealId = completeJob(jobId, String(form.get("otp") ?? ""));
+    await assertCan(me, { kind: "job.complete", jobId });
+    const dealId = await completeJob(jobId, String(form.get("otp") ?? ""));
     revalidatePath(`/deal/${dealId}`);
     revalidatePath("/vendor");
     revalidatePath("/bookings");
@@ -250,8 +250,8 @@ export async function rateAction(_prev: ActionState, form: FormData): Promise<Ac
   try {
     const me = await requireMe();
     const jobId = String(form.get("jobId"));
-    assertCan(me, { kind: "job.rate", jobId });
-    rateJob(jobId, Number(form.get("score") ?? 5), String(form.get("note") ?? ""));
+    await assertCan(me, { kind: "job.rate", jobId });
+    await rateJob(jobId, Number(form.get("score") ?? 5), String(form.get("note") ?? ""));
     revalidatePath("/bookings");
     return { ok: "Thanks — rating saved" };
   } catch (e) {
@@ -263,14 +263,14 @@ export async function updateSlabsAction(_prev: ActionState, form: FormData): Pro
   try {
     const me = await requireMe();
     const dealId = String(form.get("dealId"));
-    assertCan(me, { kind: "deal.update_slabs", dealId });
+    await assertCan(me, { kind: "deal.update_slabs", dealId });
     const slabs: Slab[] = [];
     for (let i = 0; i < 4; i++) {
       const flats = Number(form.get(`flats${i}`) ?? 0);
       const rupees = Number(form.get(`price${i}`) ?? 0);
       if (flats > 0 && rupees > 0) slabs.push({ minFlats: flats, pricePaise: Math.round(rupees * 100) });
     }
-    updateSlabs(dealId, slabs);
+    await updateSlabs(dealId, slabs);
     revalidatePath("/vendor");
     revalidatePath(`/deal/${dealId}`);
     return { ok: "Ladder updated" };
@@ -285,8 +285,8 @@ export async function approveDealAction(_prev: ActionState, form: FormData): Pro
   try {
     const me = await requireMe();
     const dealId = String(form.get("dealId"));
-    assertCan(me, { kind: "deal.approve", dealId });
-    approveDeal(dealId, me.user.id);
+    await assertCan(me, { kind: "deal.approve", dealId });
+    await approveDeal(dealId, me.user.id);
     revalidatePath("/");
     revalidatePath("/society");
     revalidatePath(`/deal/${dealId}`);
@@ -300,8 +300,8 @@ export async function startJobAction(_prev: ActionState, form: FormData): Promis
   try {
     const me = await requireMe();
     const jobId = String(form.get("jobId"));
-    assertCan(me, { kind: "job.start", jobId });
-    const dealId = startJob(jobId, String(form.get("otp") ?? ""));
+    await assertCan(me, { kind: "job.start", jobId });
+    const dealId = await startJob(jobId, String(form.get("otp") ?? ""));
     revalidatePath("/vendor");
     revalidatePath(`/deal/${dealId}`);
     revalidatePath("/bookings");
@@ -317,8 +317,8 @@ export async function scheduleRevisitAction(_prev: ActionState, form: FormData):
   try {
     const me = await requireMe();
     const jobId = String(form.get("jobId") ?? "");
-    assertCan(me, { kind: "job.schedule_revisit", jobId });
-    scheduleRevisit(jobId, String(form.get("serviceDate") ?? ""), String(form.get("slot") ?? ""));
+    await assertCan(me, { kind: "job.schedule_revisit", jobId });
+    await scheduleRevisit(jobId, String(form.get("serviceDate") ?? ""), String(form.get("slot") ?? ""));
     revalidatePath("/vendor");
     revalidatePath("/ops");
     revalidatePath("/bookings");
@@ -333,8 +333,8 @@ export async function raiseDisputeAction(_prev: ActionState, form: FormData): Pr
   try {
     const me = await requireMe();
     const jobId = String(form.get("jobId"));
-    assertCan(me, { kind: "dispute.raise", jobId });
-    raiseDispute({
+    await assertCan(me, { kind: "dispute.raise", jobId });
+    await raiseDispute({
       jobId,
       userId: me.user.id,
       reason: String(form.get("reason") ?? "Something went wrong"),
@@ -351,10 +351,10 @@ export async function raiseDisputeAction(_prev: ActionState, form: FormData): Pr
 export async function resolveDisputeAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   try {
     const me = await requireMe();
-    assertCan(me, { kind: "dispute.resolve" });
+    await assertCan(me, { kind: "dispute.resolve" });
     const resolution = String(form.get("resolution") ?? "rejected");
     if (!["refund", "revisit", "rejected"].includes(resolution)) return { error: "Pick an outcome." };
-    resolveDispute(
+    await resolveDispute(
       String(form.get("disputeId")),
       resolution as "refund" | "revisit" | "rejected",
       String(form.get("note") ?? ""),
@@ -378,7 +378,7 @@ export async function resolveDisputeAction(_prev: ActionState, form: FormData): 
 export async function submitSocietyLead(_prev: ActionState, form: FormData): Promise<ActionState> {
   try {
     const flats = Number(form.get("flats") ?? 0);
-    const { duplicate } = createLead({
+    const { duplicate } = await createLead({
       kind: "society",
       name: form.get("name"),
       phone: form.get("phone"),
@@ -389,7 +389,7 @@ export async function submitSocietyLead(_prev: ActionState, form: FormData): Pro
         flats: Number.isFinite(flats) && flats > 0 ? Math.min(flats, 5000) : null,
       },
     });
-    track(null, "lead_society", { duplicate });
+    await track(null, "lead_society", { duplicate });
     revalidatePath("/ops");
     return { ok: duplicate ? "We already have your request — we'll call you soon." : "Thanks — we'll call you within two working days." };
   } catch (e) {
@@ -403,7 +403,7 @@ export async function submitVendorLead(_prev: ActionState, form: FormData): Prom
     const services = form.getAll("services").map((v) => String(v).slice(0, 40)).slice(0, 8);
     if (!services.length) return { error: "Pick at least one service you offer." };
     const crew = Number(form.get("crew") ?? 0);
-    const { duplicate } = createLead({
+    const { duplicate } = await createLead({
       kind: "vendor",
       name: form.get("name"),
       phone: form.get("phone"),
@@ -411,7 +411,7 @@ export async function submitVendorLead(_prev: ActionState, form: FormData): Prom
       city: form.get("city"),
       detail: { services, crew: Number.isFinite(crew) && crew > 0 ? Math.min(crew, 500) : null },
     });
-    track(null, "lead_vendor", { duplicate, services });
+    await track(null, "lead_vendor", { duplicate, services });
     revalidatePath("/ops");
     return { ok: duplicate ? "We already have your application — we'll be in touch." : "Application received — our supply team will call you within two working days." };
   } catch (e) {
@@ -422,10 +422,10 @@ export async function submitVendorLead(_prev: ActionState, form: FormData): Prom
 export async function markLeadAction(_prev: ActionState, form: FormData): Promise<ActionState> {
   try {
     const me = await requireMe();
-    assertCan(me, { kind: "console.ops" });
+    await assertCan(me, { kind: "console.ops" });
     const status = String(form.get("status"));
     if (status !== "contacted" && status !== "won" && status !== "lost") return { error: "Unknown status." };
-    markLead(String(form.get("leadId")), status);
+    await markLead(String(form.get("leadId")), status);
     revalidatePath("/ops");
     return { ok: status };
   } catch (e) {
@@ -437,7 +437,7 @@ export async function markLeadAction(_prev: ActionState, form: FormData): Promis
 
 export async function markNotificationsRead() {
   const me = await requireMe();
-  markAllRead(me.user.id);
+  await markAllRead(me.user.id);
   revalidatePath("/notifications");
   revalidatePath("/");
 }
@@ -447,7 +447,7 @@ export async function setLanguage(_prev: ActionState, form: FormData): Promise<A
     const me = await requireMe();
     const lang = String(form.get("lang") ?? "en");
     if (!isLang(lang)) return { error: "Unknown language." };
-    run("UPDATE user SET lang = ? WHERE id = ?", lang, me.user.id);
+    await run("UPDATE user SET lang = ? WHERE id = ?", lang, me.user.id);
     revalidatePath("/", "layout");
     return { ok: lang };
   } catch (e) {
@@ -457,7 +457,7 @@ export async function setLanguage(_prev: ActionState, form: FormData): Promise<A
 
 export async function trackEvent(name: string, props: Record<string, unknown> = {}) {
   const me = await getMeSafe();
-  track(me?.user.id ?? null, name, props);
+  await track(me?.user.id ?? null, name, props);
 }
 
 async function getMeSafe() {

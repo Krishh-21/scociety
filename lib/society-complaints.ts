@@ -27,16 +27,16 @@ type ComplaintEvent = { id: number; complaintId: string; status: Status; note: s
 
 export class ComplaintError extends Error {}
 
-export function listComplaints(me: Me | null) {
+export async function listComplaints(me: Me | null) {
   const { societyId, userId } = requireSocietyMember(me);
   const owner = me?.user.role === "secretary" ? null : userId;
-  const where = "c.societyId = ? AND (? IS NULL OR c.userId = ?)";
-  const complaints = all<ComplaintRow>(
+  const where = "c.societyId = ? AND (CAST(? AS TEXT) IS NULL OR c.userId = ?)";
+  const complaints = await all<ComplaintRow>(
     `SELECT c.*, u.name AS resident FROM society_complaint c JOIN user u ON u.id = c.userId
      WHERE ${where} ORDER BY c.status = 'resolved', c.updatedAt DESC, c.id`,
     societyId, owner, owner,
   );
-  const events = all<ComplaintEvent>(
+  const events = await all<ComplaintEvent>(
     `SELECT e.* FROM society_complaint_event e JOIN society_complaint c ON c.id = e.complaintId
      WHERE ${where} ORDER BY e.id`,
     societyId, owner, owner,
@@ -50,14 +50,14 @@ export function listComplaints(me: Me | null) {
   return complaints.map((complaint) => ({ ...complaint, history: history.get(complaint.id) ?? [] }));
 }
 
-export function complaintSummary(societyId: string) {
-  return one<{ openComplaints: number }>(
+export async function complaintSummary(societyId: string) {
+  return (await one<{ openComplaints: number }>(
     "SELECT COUNT(*) AS openComplaints FROM society_complaint WHERE societyId = ? AND status <> 'resolved'",
     societyId,
-  )!;
+  ))!;
 }
 
-export function createComplaint(me: Me | null, category: string, title: string, detail: string) {
+export async function createComplaint(me: Me | null, category: string, title: string, detail: string) {
   const { societyId, userId, flat } = requireSocietyMember(me);
   const subject = title.trim();
   const description = detail.trim();
@@ -65,24 +65,24 @@ export function createComplaint(me: Me | null, category: string, title: string, 
   if (subject.length < 3 || subject.length > 100) throw new ComplaintError("Enter a title of 3 to 100 characters.");
   if (description.length < 5 || description.length > 800) throw new ComplaintError("Add 5 to 800 characters of detail.");
 
-  return inTransaction(() => {
+  return inTransaction(async () => {
     const complaintId = id("complaint");
     const now = new Date().toISOString();
-    run(
+    await run(
       `INSERT INTO society_complaint (id, societyId, userId, flat, category, title, detail, status, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`,
       complaintId, societyId, userId, flat, category, subject, description, now, now,
     );
-    run(
+    await run(
       "INSERT INTO society_complaint_event (complaintId, actorId, status, note, createdAt) VALUES (?, ?, 'open', '', ?)",
       complaintId, userId, now,
     );
-    const committee = all<{ userId: string }>(
+    const committee = await all<{ userId: string }>(
       `SELECT r.userId FROM residency r JOIN user u ON u.id = r.userId
        WHERE r.societyId = ? AND r.status = 'verified' AND u.role = 'secretary' AND r.userId <> ?`,
       societyId, userId,
     );
-    notify(committee.map((resident) => resident.userId), {
+    await notify(committee.map((resident) => resident.userId), {
       type: "society_complaint", title: "A new society complaint", body: "Open the complaint queue to assign it.",
     });
     return complaintId;
@@ -91,14 +91,14 @@ export function createComplaint(me: Me | null, category: string, title: string, 
 
 const NEXT_STATUS = { open: "assigned", assigned: "in_progress", in_progress: "resolved" } as const;
 
-export function updateComplaint(me: Me | null, complaintId: string, status: string, assignee: string, note: string) {
+export async function updateComplaint(me: Me | null, complaintId: string, status: string, assignee: string, note: string) {
   const { societyId, userId } = requireSocietyCommittee(me);
   const staffName = assignee.trim();
   const update = note.trim();
   if (staffName.length > 80 || update.length > 400) throw new ComplaintError("Keep the name under 80 characters and the update under 400.");
 
-  return inTransaction(() => {
-    const complaint = one<{ status: Status; assignee: string | null; userId: string }>(
+  return inTransaction(async () => {
+    const complaint = await one<{ status: Status; assignee: string | null; userId: string }>(
       "SELECT status, assignee, userId FROM society_complaint WHERE id = ? AND societyId = ?", complaintId, societyId,
     );
     if (!complaint) throw new ComplaintError("Complaint not found.");
@@ -108,15 +108,15 @@ export function updateComplaint(me: Me | null, complaintId: string, status: stri
     }
     if (status === "assigned" && !staffName) throw new ComplaintError("Enter the staff member or team handling the complaint.");
     const now = new Date().toISOString();
-    run(
+    await run(
       "UPDATE society_complaint SET status = ?, assignee = ?, updatedAt = ? WHERE id = ?",
       status, staffName || complaint.assignee, now, complaintId,
     );
-    run(
+    await run(
       "INSERT INTO society_complaint_event (complaintId, actorId, status, note, createdAt) VALUES (?, ?, ?, ?, ?)",
       complaintId, userId, status, update, now,
     );
-    notify([complaint.userId], {
+    await notify([complaint.userId], {
       type: "society_complaint", title: "Your society complaint was updated", body: "Open Complaints to see the latest status.",
     });
   });

@@ -8,6 +8,7 @@ import { can } from "@/lib/authz";
 import ConsoleGate from "@/components/ConsoleGate";
 import { CompleteJobForm, OpsDealActions, SlabEditor, StartJobForm } from "@/components/forms";
 import Countdown from "@/components/Countdown";
+import { ConsoleHeader, StatTile } from "@/components/ui";
 import RevisitScheduleForm from "@/components/RevisitScheduleForm";
 import { signOut } from "@/app/actions";
 
@@ -31,21 +32,21 @@ export default async function VendorPage({
 }) {
   const me = await getMe();
   if (!me) redirect("/login");
-  if (!can(me, { kind: "console.vendor" })) {
+  if (!(await can(me, { kind: "console.vendor" }))) {
     return <ConsoleGate console="vendor" phone="9000000010" you={me.user.name} />;
   }
-  const isOps = can(me, { kind: "console.ops" });
+  const isOps = await can(me, { kind: "console.ops" });
   const requestedVendor = isOps ? (await searchParams).vendor : me.user.vendorId;
-  const vendors = listVendors().sort((a, b) => a.name.localeCompare(b.name));
+  const vendors = (await listVendors()).sort((a, b) => a.name.localeCompare(b.name));
   const vendor = vendors.find((v) => v.id === requestedVendor) ?? (isOps ? vendors[0] : undefined);
   if (!vendor) notFound();
-  const deals = vendorDeals(vendor.id);
-  const revisits = revisitsForVendor(vendor.id);
+  const [deals, revisits] = await Promise.all([vendorDeals(vendor.id), revisitsForVendor(vendor.id)]);
   const earliestRevisitDate = revisitToday();
 
   const open = deals.filter((d) => d.status === "open");
   const confirmed = deals.filter((d) => d.status === "locked" || d.status === "in_progress");
   const done = deals.filter((d) => d.status === "completed");
+  const confirmedVisits = await Promise.all(confirmed.map(async (deal) => ({ deal, jobs: await jobsForDeal(deal.id) })));
 
   const earnings = [...confirmed, ...done].reduce(
     (sum, d) => sum + d.members.reduce((s, m) => s + (m.finalPricePaise ?? d.currentPricePaise) * m.units, 0),
@@ -55,30 +56,28 @@ export default async function VendorPage({
 
   return (
     <main className="min-h-screen bg-canvas">
-      <header className="bg-surface border-b border-line px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="eyebrow">Vendor console</p>
-          <h1 className="text-[22px] font-extrabold">{vendor.name}</h1>
-          <p className="text-[13px] text-ink-500">
-            ★ {vendor.rating} · {vendor.jobsDone.toLocaleString("en-IN")} jobs done
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          {isOps && (
-            <Link href="/ops" className="btn btn-quiet h-10 min-h-10 text-[13px]">
-              Ops deals board
+      <ConsoleHeader
+        eyebrow="Vendor console"
+        title={vendor.name}
+        meta={<>★ {vendor.rating} · {vendor.jobsDone.toLocaleString("en-IN")} jobs done</>}
+        actions={
+          <>
+            {isOps && (
+              <Link href="/ops" className="btn jd-btn-ghost-light min-h-10 text-[13px]">
+                Ops deals board
+              </Link>
+            )}
+            <Link href="/" className="btn jd-btn-ghost-light min-h-10 text-[13px]">
+              Resident app
             </Link>
-          )}
-          <Link href="/" className="btn btn-quiet h-10 min-h-10 text-[13px]">
-            Resident app
-          </Link>
-          <form action={signOut}>
-            <button className="btn btn-quiet h-10 min-h-10 text-[13px]">Sign out</button>
-          </form>
-        </div>
-      </header>
+            <form action={signOut}>
+              <button className="btn jd-btn-ghost-light min-h-10 text-[13px]">Sign out</button>
+            </form>
+          </>
+        }
+      />
 
-      <div className="max-w-[1100px] mx-auto px-6 py-6 flex flex-col gap-6">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
         {isOps && (
           <form action="/vendor" method="get" className="card p-4 flex flex-wrap items-end gap-3">
             <div className="w-full sm:w-64">
@@ -97,10 +96,7 @@ export default async function VendorPage({
             ["Booked value", rupees(earnings)],
             ["JODO commission (15%)", rupees(commissionPaise)],
           ].map(([label, value]) => (
-            <div key={label} className="card p-4">
-              <p className="eyebrow mb-1">{label}</p>
-              <p className="tnum text-[22px] font-extrabold">{value}</p>
-            </div>
+            <StatTile key={label} label={label} value={value} />
           ))}
         </section>
 
@@ -140,8 +136,7 @@ export default async function VendorPage({
         <section>
           <h2 className="font-extrabold text-[18px] mb-3">Service days</h2>
           <div className="flex flex-col gap-4">
-            {confirmed.map((d) => {
-              const jobs = jobsForDeal(d.id);
+            {confirmedVisits.map(({ deal: d, jobs }) => {
               return (
                 <article key={d.id} id={`deal-${d.id}`} tabIndex={-1} className="card p-4 scroll-mt-4">
                   <div className="flex flex-wrap items-start justify-between gap-3 mb-3">

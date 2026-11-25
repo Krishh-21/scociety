@@ -10,8 +10,8 @@ export class ForbiddenError extends Error {}
 
 type DealRow = { id: string; societyId: string; vendorId: string; createdBy: string };
 
-function deal(dealId: string): DealRow {
-  const row = one<DealRow>("SELECT id, societyId, vendorId, createdBy FROM deal WHERE id = ?", dealId);
+async function deal(dealId: string): Promise<DealRow> {
+  const row = await one<DealRow>("SELECT id, societyId, vendorId, createdBy FROM deal WHERE id = ?", dealId);
   if (!row) throw new ForbiddenError("Deal not found.");
   return row;
 }
@@ -43,7 +43,7 @@ export type Action =
   | { kind: "console.ops" }
   | { kind: "console.vendor" };
 
-export function can(me: Me, action: Action): boolean {
+export async function can(me: Me, action: Action): Promise<boolean> {
   switch (action.kind) {
     case "console.ops":
       return isOps(me);
@@ -53,7 +53,7 @@ export function can(me: Me, action: Action): boolean {
     case "deal.view":
     case "deal.join":
     case "deal.comment": {
-      const d = deal(action.dealId);
+      const d = await deal(action.dealId);
       if (isOps(me)) return action.kind === "deal.view";
       if (isDealVendor(me, d)) return action.kind === "deal.view";
       return isResidentOf(me, d.societyId);
@@ -61,18 +61,18 @@ export function can(me: Me, action: Action): boolean {
 
     case "deal.lock":
     case "deal.expire": {
-      const d = deal(action.dealId);
+      const d = await deal(action.dealId);
       return isOps(me) || isDealVendor(me, d) || isCommittee(me, d.societyId);
     }
 
     case "deal.start_service":
     case "deal.update_slabs": {
-      const d = deal(action.dealId);
+      const d = await deal(action.dealId);
       return isOps(me) || isDealVendor(me, d);
     }
 
     case "deal.approve": {
-      const d = deal(action.dealId);
+      const d = await deal(action.dealId);
       return isOps(me) || isCommittee(me, d.societyId);
     }
 
@@ -80,7 +80,7 @@ export function can(me: Me, action: Action): boolean {
       return isOps(me);
 
     case "dispute.raise": {
-      const row = one<{ userId: string }>(
+      const row = await one<{ userId: string }>(
         "SELECT m.userId FROM job j JOIN deal_member m ON m.id = j.memberId WHERE j.id = ?",
         action.jobId,
       );
@@ -95,18 +95,18 @@ export function can(me: Me, action: Action): boolean {
     case "job.schedule_revisit":
     case "job.start":
     case "job.complete": {
-      const revisit = one<{ dealId: string }>(
+      const revisit = await one<{ dealId: string }>(
         "SELECT d.dealId FROM revisit r JOIN dispute d ON d.id = r.disputeId WHERE r.id = ?", action.jobId,
       );
       const row = action.kind === "job.schedule_revisit"
         ? revisit
-        : revisit ?? one<{ dealId: string }>("SELECT dealId FROM job WHERE id = ?", action.jobId);
+        : revisit ?? await one<{ dealId: string }>("SELECT dealId FROM job WHERE id = ?", action.jobId);
       if (!row) return false;
-      return isOps(me) || isDealVendor(me, deal(row.dealId));
+      return isOps(me) || isDealVendor(me, await deal(row.dealId));
     }
 
     case "job.rate": {
-      const row = one<{ userId: string }>(
+      const row = await one<{ userId: string }>(
         "SELECT m.userId FROM job j JOIN deal_member m ON m.id = j.memberId WHERE j.id = ?",
         action.jobId,
       );
@@ -136,8 +136,8 @@ const MESSAGES: Record<string, string> = {
   "dispute.resolve": "Only JODO ops can resolve an issue.",
 };
 
-export function assertCan(me: Me, action: Action): void {
-  if (!can(me, action)) {
+export async function assertCan(me: Me, action: Action): Promise<void> {
+  if (!(await can(me, action))) {
     throw new ForbiddenError(MESSAGES[action.kind] ?? "You don't have access to that.");
   }
 }

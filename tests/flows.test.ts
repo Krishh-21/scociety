@@ -20,13 +20,13 @@ const AC = "deal_ac_sunday";
 const GREEN = "soc_green_valley";
 const PALM = "soc_palm_grove";
 
-function freeResident(dealId: string) {
-  return one<{ id: string; flat: string }>(
+async function freeResident(dealId: string) {
+  return (await one<{ id: string; flat: string }>(
     `SELECT u.id, r.flat FROM user u JOIN residency r ON r.userId = u.id AND r.societyId = ?
      WHERE u.id NOT IN (SELECT userId FROM deal_member WHERE dealId = ? AND status <> 'left')
      ORDER BY r.flat LIMIT 1`,
     GREEN, dealId,
-  )!;
+  ))!;
 }
 
 function newDeal(opts: { skuId?: string; societyId?: string; target?: number; hours?: number } = {}) {
@@ -56,21 +56,19 @@ afterAll(() => {
 });
 
 describe("slot capacity", () => {
-  it("refuses a join that would over-book a crew's slot", () => {
-    const view = getDealView(AC)!;
+  it("refuses a join that would over-book a crew's slot", async () => {
+    const view = (await getDealView(AC))!;
     const slot = view.slotLoad[0];
     const room = slot.capacity - slot.used;
-    const r = freeResident(AC);
-    expect(() =>
-      joinDeal({
-        dealId: AC, userId: r.id, flat: r.flat, units: room + 1,
-        slot: slot.slot, paymentMethod: "upi", societyId: GREEN,
-      }),
-    ).toThrow(/slot/i);
+    const r = await freeResident(AC);
+    await expect(joinDeal({
+      dealId: AC, userId: r.id, flat: r.flat, units: room + 1,
+      slot: slot.slot, paymentMethod: "upi", societyId: GREEN,
+    })).rejects.toThrow(/slot/i);
   });
 
-  it("reports how full each slot is", () => {
-    const view = getDealView(AC)!;
+  it("reports how full each slot is", async () => {
+    const view = (await getDealView(AC))!;
     const total = view.slotLoad.reduce((n, s) => n + s.used, 0);
     expect(total).toBe(view.unitsJoined);
     expect(view.slotLoad.every((s) => s.capacity === view.sku.unitsPerSlot)).toBe(true);
@@ -78,358 +76,356 @@ describe("slot capacity", () => {
 });
 
 describe("committee approval", () => {
-  it("holds a new group for approval in a society that asked for it", () => {
-    run("INSERT OR IGNORE INTO residency (id,userId,societyId,flat,type,status,verifiedVia,createdAt) VALUES ('res_palm','usr_kulkarni',?,'D-101','owner','verified','ops',?)",
+  it("holds a new group for approval in a society that asked for it", async () => {
+    await run("INSERT OR IGNORE INTO residency (id,userId,societyId,flat,type,status,verifiedVia,createdAt) VALUES ('res_palm','usr_kulkarni',?,'D-101','owner','verified','ops',?)",
       PALM, new Date().toISOString());
-    const id = createDeal({
+    const id = await createDeal({
       societyId: PALM, skuId: "sku_pest", vendorId: "ven_greenshield", createdBy: "usr_kulkarni",
       serviceDate: new Date(Date.now() + 6 * 86_400_000).toISOString(), targetFlats: 10, deadlineHours: 48,
     });
-    expect(getDealView(id)!.status).toBe("pending");
+    expect((await getDealView(id))!.status).toBe("pending");
 
-    expect(() =>
-      joinDeal({
-        dealId: id, userId: "usr_kulkarni", flat: "D-101", units: 1,
-        slot: "10:00–12:00", paymentMethod: "upi", societyId: PALM,
-      }),
-    ).toThrow(/closed for joining/i);
+    await expect(joinDeal({
+      dealId: id, userId: "usr_kulkarni", flat: "D-101", units: 1,
+      slot: "10:00–12:00", paymentMethod: "upi", societyId: PALM,
+    })).rejects.toThrow(/closed for joining/i);
 
-    const approved = approveDeal(id, "usr_kulkarni");
+    const approved = await approveDeal(id, "usr_kulkarni");
     expect(approved.status).toBe("open");
     expect(approved.approvedBy).toBe("usr_kulkarni");
   });
 
-  it("goes live immediately where no approval is required", () => {
-    expect(getDealView(newDeal())!.status).toBe("open");
+  it("goes live immediately where no approval is required", async () => {
+    expect((await getDealView(await newDeal()))!.status).toBe("open");
   });
 });
 
 describe("one automatic extension", () => {
-  it("extends a group that nearly made it instead of killing it", () => {
-    const id = newDeal({ target: 10 });
-    simulateJoins(id, 6); // mvs is 8 for pest control, 60% of it is 5
-    run("UPDATE deal SET joinDeadline = ? WHERE id = ?", new Date(Date.now() - 60_000).toISOString(), id);
+  it("extends a group that nearly made it instead of killing it", async () => {
+    const id = await newDeal({ target: 10 });
+    await simulateJoins(id, 6); // mvs is 8 for pest control, 60% of it is 5
+    await run("UPDATE deal SET joinDeadline = ? WHERE id = ?", new Date(Date.now() - 60_000).toISOString(), id);
 
-    tickDeal(id);
-    const extended = getDealView(id)!;
+    await tickDeal(id);
+    const extended = (await getDealView(id))!;
     expect(extended.status).toBe("open");
     expect(extended.extendedAt).not.toBeNull();
     expect(extended.msToDeadline).toBeGreaterThan(24 * 3_600_000);
 
     // …but only once.
-    run("UPDATE deal SET joinDeadline = ? WHERE id = ?", new Date(Date.now() - 60_000).toISOString(), id);
-    tickDeal(id);
-    expect(getDealView(id)!.status).toBe("expired");
+    await run("UPDATE deal SET joinDeadline = ? WHERE id = ?", new Date(Date.now() - 60_000).toISOString(), id);
+    await tickDeal(id);
+    expect((await getDealView(id))!.status).toBe("expired");
   });
 
-  it("expires a group nobody joined, without an extension", () => {
-    const id = newDeal();
-    run("UPDATE deal SET joinDeadline = ? WHERE id = ?", new Date(Date.now() - 60_000).toISOString(), id);
-    tickDeal(id);
-    expect(getDealView(id)!.status).toBe("expired");
+  it("expires a group nobody joined, without an extension", async () => {
+    const id = await newDeal();
+    await run("UPDATE deal SET joinDeadline = ? WHERE id = ?", new Date(Date.now() - 60_000).toISOString(), id);
+    await tickDeal(id);
+    expect((await getDealView(id))!.status).toBe("expired");
   });
 });
 
 describe("payment ledger", () => {
-  it("authorises on join, captures on lock, and never before", () => {
-    const id = newDeal({ target: 10 });
-    simulateJoins(id, 9);
-    const joined = getDealView(id)!;
+  it("authorises on join, captures on lock, and never before", async () => {
+    const id = await newDeal({ target: 10 });
+    await simulateJoins(id, 9);
+    const joined = (await getDealView(id))!;
     const member = joined.members[0];
 
-    const authorised = paymentsForMember(member.id);
+    const authorised = await paymentsForMember(member.id);
     expect(authorised).toHaveLength(1);
     expect(authorised[0]).toMatchObject({ type: "authorisation", status: "held" });
 
-    lockDeal(id);
-    const afterLock = paymentsForMember(member.id);
+    await lockDeal(id);
+    const afterLock = await paymentsForMember(member.id);
     expect(afterLock.find((p) => p.type === "authorisation")!.status).toBe("captured");
     const capture = afterLock.find((p) => p.type === "capture")!;
-    expect(capture.amountPaise).toBe(getDealView(id)!.currentPricePaise * member.units);
+    expect(capture.amountPaise).toBe((await getDealView(id))!.currentPricePaise * member.units);
 
-    expect(() => expireDeal(id)).toThrow(DealError);
-    expect(paymentsForMember(member.id)).toEqual(afterLock);
-    expect(getDealView(id)!.status).toBe("locked");
+    await expect(expireDeal(id)).rejects.toThrow(DealError);
+    expect(await paymentsForMember(member.id)).toEqual(afterLock);
+    expect((await getDealView(id))!.status).toBe("locked");
   });
 
-  it("releases every authorisation when a group expires", () => {
-    const id = newDeal();
-    simulateJoins(id, 2);
-    const member = getDealView(id)!.members[0];
-    run("UPDATE deal SET joinDeadline = ?, extendedAt = ? WHERE id = ?",
+  it("releases every authorisation when a group expires", async () => {
+    const id = await newDeal();
+    await simulateJoins(id, 2);
+    const member = (await getDealView(id))!.members[0];
+    await run("UPDATE deal SET joinDeadline = ?, extendedAt = ? WHERE id = ?",
       new Date(Date.now() - 60_000).toISOString(), new Date().toISOString(), id);
-    tickDeal(id);
+    await tickDeal(id);
 
-    const payments = paymentsForMember(member.id);
+    const payments = await paymentsForMember(member.id);
     expect(payments.find((p) => p.type === "authorisation")!.status).toBe("released");
     expect(payments.some((p) => p.type === "capture")).toBe(false);
   });
 });
 
 describe("service day", () => {
-  function bookedDeal() {
-    const id = newDeal({ target: 10 });
-    simulateJoins(id, 9);
-    lockDeal(id);
+  async function bookedDeal() {
+    const id = await newDeal({ target: 10 });
+    await simulateJoins(id, 9);
+    await lockDeal(id);
     return id;
   }
 
-  it("gives the confirmed demo group a visit for every booking", () => {
-    const deal = getDealView("deal_carwash")!;
+  it("gives the confirmed demo group a visit for every booking", async () => {
+    const deal = (await getDealView("deal_carwash"))!;
     expect(deal.status).toBe("locked");
-    const jobs = all<{ status: string; startOtp: string }>("SELECT * FROM job WHERE dealId = ?", deal.id);
+    const jobs = await all<{ status: string; startOtp: string }>("SELECT * FROM job WHERE dealId = ?", deal.id);
     expect(jobs).toHaveLength(deal.members.length);
     expect(jobs.every((job) => job.status === "scheduled" && /^\d{4}$/.test(job.startOtp))).toBe(true);
     const member = deal.members[0];
-    expect(paymentsForMember(member.id)).toMatchObject([
+    expect(await paymentsForMember(member.id)).toMatchObject([
       { type: "capture", amountPaise: member.finalPricePaise! * member.units },
     ]);
   });
 
-  it("repairs an existing demo group whose service day started without any jobs", () => {
+  it("repairs an existing demo group whose service day started without any jobs", async () => {
     const id = "deal_carwash";
-    run("DELETE FROM job WHERE dealId = ?", id);
-    run("DELETE FROM payment WHERE dealId = ?", id);
-    run("UPDATE deal SET status = 'in_progress' WHERE id = ?", id);
+    await run("DELETE FROM job WHERE dealId = ?", id);
+    await run("DELETE FROM payment WHERE dealId = ?", id);
+    await run("UPDATE deal SET status = 'in_progress' WHERE id = ?", id);
 
     seedIfEmpty(getDb());
-    const jobs = all<{ id: string; status: string; slot: string }>(
+    const jobs = await all<{ id: string; status: string; slot: string }>(
       "SELECT id, status, slot FROM job WHERE dealId = ? ORDER BY slot, id", id,
     );
-    expect(jobs).toHaveLength(getDealView(id)!.members.length);
+    expect(jobs).toHaveLength((await getDealView(id))!.members.length);
     expect(jobs.every((job) => job.status === (job.slot === jobs[0].slot ? "en_route" : "scheduled"))).toBe(true);
 
     seedIfEmpty(getDb());
-    expect(all("SELECT id, status, slot FROM job WHERE dealId = ? ORDER BY slot, id", id)).toEqual(jobs);
-    expect(all("SELECT id FROM payment WHERE dealId = ? AND type = 'capture'", id)).toHaveLength(jobs.length);
+    expect(await all("SELECT id, status, slot FROM job WHERE dealId = ? ORDER BY slot, id", id)).toEqual(jobs);
+    expect(await all("SELECT id FROM payment WHERE dealId = ? AND type = 'capture'", id)).toHaveLength(jobs.length);
   });
 
-  it("sends out one slot at a time", () => {
-    const id = bookedDeal();
-    startService(id);
-    const jobs = all<{ slot: string; status: string }>("SELECT slot, status FROM job WHERE dealId = ?", id);
+  it("sends out one slot at a time", async () => {
+    const id = await bookedDeal();
+    await startService(id);
+    const jobs = await all<{ slot: string; status: string }>("SELECT slot, status FROM job WHERE dealId = ?", id);
     const enRoute = new Set(jobs.filter((j) => j.status === "en_route").map((j) => j.slot));
     expect(enRoute.size).toBe(1);
     expect(jobs.some((j) => j.status === "scheduled")).toBe(true);
   });
 
-  it("needs the resident's start code, then their completion code", () => {
-    const id = bookedDeal();
-    startService(id);
-    const job = one<{ id: string; startOtp: string; endOtp: string }>(
+  it("needs the resident's start code, then their completion code", async () => {
+    const id = await bookedDeal();
+    await startService(id);
+    const job = (await one<{ id: string; startOtp: string; endOtp: string }>(
       "SELECT * FROM job WHERE dealId = ? AND status='en_route' LIMIT 1", id,
-    )!;
+    ))!;
 
-    expect(() => startJob(job.id, "0000")).toThrow(/start code/i);
-    startJob(job.id, job.startOtp);
-    expect(() => completeJob(job.id, "0000")).toThrow(/OTP/i);
-    completeJob(job.id, job.endOtp);
+    await expect(startJob(job.id, "0000")).rejects.toThrow(/start code/i);
+    await startJob(job.id, job.startOtp);
+    await expect(completeJob(job.id, "0000")).rejects.toThrow(/OTP/i);
+    await completeJob(job.id, job.endOtp);
 
-    expect(one<{ status: string }>("SELECT status FROM job WHERE id = ?", job.id)!.status).toBe("completed");
+    expect((await one<{ status: string }>("SELECT status FROM job WHERE id = ?", job.id))!.status).toBe("completed");
   });
 
-  it("rejects out-of-order service actions and leaves a completed visit unchanged on retry", () => {
-    const id = bookedDeal();
-    const job = one<{ id: string; startOtp: string; endOtp: string; userId: string }>(
+  it("rejects out-of-order service actions and leaves a completed visit unchanged on retry", async () => {
+    const id = await bookedDeal();
+    const job = (await one<{ id: string; startOtp: string; endOtp: string; userId: string }>(
       `SELECT j.*, m.userId FROM job j JOIN deal_member m ON m.id = j.memberId
        WHERE j.dealId = ? ORDER BY j.slot LIMIT 1`, id,
-    )!;
+    ))!;
 
-    expect(() => startJob(job.id, job.startOtp)).toThrow(DealError);
-    expect(() => completeJob(job.id, job.endOtp)).toThrow(DealError);
-    expect(() => rateJob(job.id, 5, "Too early")).toThrow(DealError);
-    startService(id);
-    const nextSlot = one<{ id: string; startOtp: string }>(
+    await expect(startJob(job.id, job.startOtp)).rejects.toThrow(DealError);
+    await expect(completeJob(job.id, job.endOtp)).rejects.toThrow(DealError);
+    await expect(rateJob(job.id, 5, "Too early")).rejects.toThrow(DealError);
+    await startService(id);
+    const nextSlot = (await one<{ id: string; startOtp: string }>(
       "SELECT * FROM job WHERE dealId = ? AND status='scheduled' LIMIT 1", id,
-    )!;
-    expect(() => startJob(nextSlot.id, nextSlot.startOtp)).toThrow(DealError);
-    expect(() => completeJob(job.id, job.endOtp)).toThrow(DealError);
+    ))!;
+    await expect(startJob(nextSlot.id, nextSlot.startOtp)).rejects.toThrow(DealError);
+    await expect(completeJob(job.id, job.endOtp)).rejects.toThrow(DealError);
 
-    startJob(job.id, job.startOtp);
-    expect(() => startJob(job.id, job.startOtp)).toThrow(DealError);
-    completeJob(job.id, job.endOtp);
-    expect(getDealView(id)!.status).toBe("in_progress");
-    rateJob(job.id, 5, "All done");
-    const visit = one("SELECT * FROM job WHERE id = ?", job.id);
-    expect(() => completeJob(job.id, job.endOtp)).toThrow(DealError);
-    expect(one("SELECT * FROM job WHERE id = ?", job.id)).toEqual(visit);
-    expect(listNotifications(job.userId).filter((n) => n.dealId === id && n.type === "job_done")).toHaveLength(1);
+    await startJob(job.id, job.startOtp);
+    await expect(startJob(job.id, job.startOtp)).rejects.toThrow(DealError);
+    await completeJob(job.id, job.endOtp);
+    expect((await getDealView(id))!.status).toBe("in_progress");
+    await rateJob(job.id, 5, "All done");
+    const visit = await one("SELECT * FROM job WHERE id = ?", job.id);
+    await expect(completeJob(job.id, job.endOtp)).rejects.toThrow(DealError);
+    expect(await one("SELECT * FROM job WHERE id = ?", job.id)).toEqual(visit);
+    expect((await listNotifications(job.userId)).filter((n) => n.dealId === id && n.type === "job_done")).toHaveLength(1);
   });
 
-  it("tells a resident how many flats are ahead of them", () => {
-    const id = bookedDeal();
-    startService(id);
-    const jobs = all<{ id: string }>("SELECT id FROM job WHERE dealId = ? ORDER BY slot, flat", id);
-    expect(queueAhead(id, jobs[0].id)).toMatchObject({ ahead: 0 });
-    expect(queueAhead(id, jobs[2].id)!.ahead).toBe(2);
+  it("tells a resident how many flats are ahead of them", async () => {
+    const id = await bookedDeal();
+    await startService(id);
+    const jobs = await all<{ id: string }>("SELECT id FROM job WHERE dealId = ? ORDER BY slot, flat", id);
+    expect(await queueAhead(id, jobs[0].id)).toMatchObject({ ahead: 0 });
+    expect((await queueAhead(id, jobs[2].id))!.ahead).toBe(2);
   });
 
-  it("marks the whole group completed once the last job closes", () => {
-    const id = bookedDeal();
-    startService(id);
+  it("marks the whole group completed once the last job closes", async () => {
+    const id = await bookedDeal();
+    await startService(id);
     let guard = 0;
     while (guard++ < 50) {
-      const job = one<{ id: string; startOtp: string; endOtp: string }>(
+      const job = await one<{ id: string; startOtp: string; endOtp: string }>(
         "SELECT * FROM job WHERE dealId = ? AND status = 'en_route' LIMIT 1", id,
       );
       if (!job) break;
-      startJob(job.id, job.startOtp);
-      completeJob(job.id, job.endOtp);
+      await startJob(job.id, job.startOtp);
+      await completeJob(job.id, job.endOtp);
     }
-    expect(getDealView(id)!.status).toBe("completed");
+    expect((await getDealView(id))!.status).toBe("completed");
   });
 });
 
 describe("disputes and warranty", () => {
-  function completedJob() {
-    const id = newDeal({ target: 10 });
-    simulateJoins(id, 9);
-    lockDeal(id);
-    startService(id);
-    const job = one<{ id: string; startOtp: string; endOtp: string; memberId: string }>(
+  async function completedJob() {
+    const id = await newDeal({ target: 10 });
+    await simulateJoins(id, 9);
+    await lockDeal(id);
+    await startService(id);
+    const job = (await one<{ id: string; startOtp: string; endOtp: string; memberId: string }>(
       "SELECT * FROM job WHERE dealId = ? AND status='en_route' LIMIT 1", id,
-    )!;
-    startJob(job.id, job.startOtp);
-    completeJob(job.id, job.endOtp);
-    const member = one<{ userId: string }>("SELECT userId FROM deal_member WHERE id = ?", job.memberId)!;
+    ))!;
+    await startJob(job.id, job.startOtp);
+    await completeJob(job.id, job.endOtp);
+    const member = (await one<{ userId: string }>("SELECT userId FROM deal_member WHERE id = ?", job.memberId))!;
     return { dealId: id, job, userId: member.userId };
   }
 
-  it("lets the resident raise an issue inside the warranty window", () => {
-    const { job, userId } = completedJob();
-    const disputeId = raiseDispute({ jobId: job.id, userId, reason: "Work not done properly", detail: "Still seeing ants." });
-    expect(openDisputes().find((d) => d.id === disputeId)!.status).toBe("open");
+  it("lets the resident raise an issue inside the warranty window", async () => {
+    const { job, userId } = await completedJob();
+    const disputeId = await raiseDispute({ jobId: job.id, userId, reason: "Work not done properly", detail: "Still seeing ants." });
+    expect((await openDisputes()).find((d) => d.id === disputeId)!.status).toBe("open");
   });
 
-  it("refuses a second open issue on the same job", () => {
-    const { job, userId } = completedJob();
-    raiseDispute({ jobId: job.id, userId, reason: "Late", detail: "Arrived two hours late." });
-    expect(() => raiseDispute({ jobId: job.id, userId, reason: "Late", detail: "Again." })).toThrow(DealError);
+  it("refuses a second open issue on the same job", async () => {
+    const { job, userId } = await completedJob();
+    await raiseDispute({ jobId: job.id, userId, reason: "Late", detail: "Arrived two hours late." });
+    await expect(raiseDispute({ jobId: job.id, userId, reason: "Late", detail: "Again." })).rejects.toThrow(DealError);
   });
 
-  it("refuses an issue once the warranty window has closed", () => {
-    const { job, userId } = completedJob();
-    run("UPDATE job SET finishedAt = ? WHERE id = ?", new Date(Date.now() - 400 * 86_400_000).toISOString(), job.id);
-    expect(() => raiseDispute({ jobId: job.id, userId, reason: "Late", detail: "Old job." })).toThrow(/warranty/i);
+  it("refuses an issue once the warranty window has closed", async () => {
+    const { job, userId } = await completedJob();
+    await run("UPDATE job SET finishedAt = ? WHERE id = ?", new Date(Date.now() - 400 * 86_400_000).toISOString(), job.id);
+    await expect(raiseDispute({ jobId: job.id, userId, reason: "Late", detail: "Old job." })).rejects.toThrow(/warranty/i);
   });
 
-  it("writes a refund to the ledger when ops refunds", () => {
-    const { job, userId } = completedJob();
-    const disputeId = raiseDispute({ jobId: job.id, userId, reason: "Damage", detail: "Scratched the wall." });
-    resolveDispute(disputeId, "refund", "Refunded in full, vendor warned.");
+  it("writes a refund to the ledger when ops refunds", async () => {
+    const { job, userId } = await completedJob();
+    const disputeId = await raiseDispute({ jobId: job.id, userId, reason: "Damage", detail: "Scratched the wall." });
+    await resolveDispute(disputeId, "refund", "Refunded in full, vendor warned.");
 
-    const payments = paymentsForMember(job.memberId);
+    const payments = await paymentsForMember(job.memberId);
     const refund = payments.find((p) => p.type === "refund")!;
     expect(refund.amountPaise).toBeGreaterThan(0);
-    expect(openDisputes().find((d) => d.id === disputeId)!.status).toBe("resolved");
+    expect((await openDisputes()).find((d) => d.id === disputeId)!.status).toBe("resolved");
 
-    const secondIssue = raiseDispute({ jobId: job.id, userId, reason: "Late", detail: "Separate issue." });
-    expect(() => resolveDispute(secondIssue, "refund", "Second refund")).toThrow(/already refunded/i);
-    expect(paymentsForMember(job.memberId).filter((p) => p.type === "refund")).toHaveLength(1);
-    expect(openDisputes().find((d) => d.id === secondIssue)!.status).toBe("open");
+    const secondIssue = await raiseDispute({ jobId: job.id, userId, reason: "Late", detail: "Separate issue." });
+    await expect(resolveDispute(secondIssue, "refund", "Second refund")).rejects.toThrow(/already refunded/i);
+    expect((await paymentsForMember(job.memberId)).filter((p) => p.type === "refund")).toHaveLength(1);
+    expect((await openDisputes()).find((d) => d.id === secondIssue)!.status).toBe("open");
   });
 
-  it("turns an approved revisit into a separate no-charge visit with its own confirmation codes", () => {
-    const { dealId, job, userId } = completedJob();
-    const disputeId = raiseDispute({ jobId: job.id, userId, reason: "Work not done properly", detail: "Still seeing ants." });
-    const originalJob = one("SELECT * FROM job WHERE id = ?", job.id);
-    const originalPayments = paymentsForMember(job.memberId);
+  it("turns an approved revisit into a separate no-charge visit with its own confirmation codes", async () => {
+    const { dealId, job, userId } = await completedJob();
+    const disputeId = await raiseDispute({ jobId: job.id, userId, reason: "Work not done properly", detail: "Still seeing ants." });
+    const originalJob = await one("SELECT * FROM job WHERE id = ?", job.id);
+    const originalPayments = await paymentsForMember(job.memberId);
     const indiaDate = (date: Date) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Kolkata" }).format(date);
     const today = indiaDate(new Date());
     const tomorrow = indiaDate(new Date(Date.now() + 86_400_000));
     const slot = "10:00–12:00";
 
-    resolveDispute(disputeId, "revisit", "Check the affected rooms.");
-    expect(listNotifications(userId).some((n) => n.dealId === dealId && n.type === "revisit_requested")).toBe(true);
-    const revisit = revisitsForResident(userId).find((visit) => visit.disputeId === disputeId)!;
+    await resolveDispute(disputeId, "revisit", "Check the affected rooms.");
+    expect((await listNotifications(userId)).some((n) => n.dealId === dealId && n.type === "revisit_requested")).toBe(true);
+    const revisit = (await revisitsForResident(userId)).find((visit) => visit.disputeId === disputeId)!;
     expect(revisit).toMatchObject({ dealId, status: "awaiting_schedule", serviceDate: null });
     expect(revisit.startOtp).not.toBe(revisit.endOtp);
     expect([job.startOtp, job.endOtp]).not.toContain(revisit.startOtp);
     expect([job.startOtp, job.endOtp]).not.toContain(revisit.endOtp);
-    expect(revisitsForOps()).toContainEqual(revisit);
-    expect(revisitsForVendor("ven_greenshield")).toContainEqual(revisit);
-    expect(revisitsForVendor("ven_coolcare")).not.toContainEqual(revisit);
-    expect(revisitsForResident("usr_rahul")).not.toContainEqual(revisit);
+    expect(await revisitsForOps()).toContainEqual(revisit);
+    expect(await revisitsForVendor("ven_greenshield")).toContainEqual(revisit);
+    expect(await revisitsForVendor("ven_coolcare")).not.toContainEqual(revisit);
+    expect(await revisitsForResident("usr_rahul")).not.toContainEqual(revisit);
 
-    const sampleVendor = one<User>("SELECT * FROM user WHERE id = 'usr_vendor_cool'")!;
+    const sampleVendor = (await one<User>("SELECT * FROM user WHERE id = 'usr_vendor_cool'"))!;
     const assignedVendor = { user: { ...sampleVendor, vendorId: "ven_greenshield" }, residency: null };
     const otherVendor = { user: sampleVendor, residency: null };
     for (const kind of ["job.schedule_revisit", "job.start", "job.complete"] as const) {
-      expect(can(assignedVendor, { kind, jobId: revisit.id })).toBe(true);
-      expect(can(otherVendor, { kind, jobId: revisit.id })).toBe(false);
+      expect(await can(assignedVendor, { kind, jobId: revisit.id })).toBe(true);
+      expect(await can(otherVendor, { kind, jobId: revisit.id })).toBe(false);
     }
-    const otherIssue = raiseDispute({ jobId: job.id, userId, reason: "Late", detail: "A second issue." });
-    expect(() => resolveDispute(otherIssue, "revisit", "")).toThrow(/already pending or underway/i);
-    expect(() => completeJob(revisit.id, revisit.endOtp)).toThrow(DealError);
-    expect(() => scheduleRevisit(revisit.id, "2035-02-31", slot)).toThrow(DealError);
-    expect(() => scheduleRevisit(revisit.id, today, "09:15")).toThrow(DealError);
-    scheduleRevisit(revisit.id, tomorrow, slot);
-    expect(() => startJob(revisit.id, revisit.startOtp)).toThrow(DealError);
-    scheduleRevisit(revisit.id, today, slot);
-    expect(revisitsForResident(userId).find((visit) => visit.id === revisit.id)).toMatchObject({
+    const otherIssue = await raiseDispute({ jobId: job.id, userId, reason: "Late", detail: "A second issue." });
+    await expect(resolveDispute(otherIssue, "revisit", "")).rejects.toThrow(/already pending or underway/i);
+    await expect(completeJob(revisit.id, revisit.endOtp)).rejects.toThrow(DealError);
+    await expect(scheduleRevisit(revisit.id, "2035-02-31", slot)).rejects.toThrow(DealError);
+    await expect(scheduleRevisit(revisit.id, today, "09:15")).rejects.toThrow(DealError);
+    await scheduleRevisit(revisit.id, tomorrow, slot);
+    await expect(startJob(revisit.id, revisit.startOtp)).rejects.toThrow(DealError);
+    await scheduleRevisit(revisit.id, today, slot);
+    expect((await revisitsForResident(userId)).find((visit) => visit.id === revisit.id)).toMatchObject({
       status: "scheduled", serviceDate: today, slot,
     });
-    expect(() => startJob(revisit.id, "0000")).toThrow(/start code/i);
-    startJob(revisit.id, revisit.startOtp);
-    expect(() => scheduleRevisit(revisit.id, tomorrow, slot)).toThrow(DealError);
-    expect(() => completeJob(revisit.id, "0000")).toThrow(DealError);
-    completeJob(revisit.id, revisit.endOtp);
-    expect(() => completeJob(revisit.id, revisit.endOtp)).toThrow(DealError);
+    await expect(startJob(revisit.id, "0000")).rejects.toThrow(/start code/i);
+    await startJob(revisit.id, revisit.startOtp);
+    await expect(scheduleRevisit(revisit.id, tomorrow, slot)).rejects.toThrow(DealError);
+    await expect(completeJob(revisit.id, "0000")).rejects.toThrow(DealError);
+    await completeJob(revisit.id, revisit.endOtp);
+    await expect(completeJob(revisit.id, revisit.endOtp)).rejects.toThrow(DealError);
 
-    expect(revisitsForResident(userId).find((visit) => visit.id === revisit.id)?.status).toBe("completed");
-    const visitEvents = listNotifications(userId).filter((n) => n.dealId === dealId).map((n) => n.type);
+    expect((await revisitsForResident(userId)).find((visit) => visit.id === revisit.id)?.status).toBe("completed");
+    const visitEvents = (await listNotifications(userId)).filter((n) => n.dealId === dealId).map((n) => n.type);
     expect(visitEvents).toEqual(expect.arrayContaining(["revisit_scheduled", "revisit_started", "revisit_completed"]));
     expect(visitEvents.filter((type) => type === "revisit_completed")).toHaveLength(1);
-    expect(getDealView(dealId)?.status).toBe("in_progress");
-    expect(one("SELECT * FROM job WHERE id = ?", job.id)).toEqual(originalJob);
-    expect(paymentsForMember(job.memberId)).toEqual(originalPayments);
+    expect((await getDealView(dealId))?.status).toBe("in_progress");
+    expect(await one("SELECT * FROM job WHERE id = ?", job.id)).toEqual(originalJob);
+    expect(await paymentsForMember(job.memberId)).toEqual(originalPayments);
   });
 
-  it("brings prior approved revisits into the scheduling queue once", () => {
-    const { job, userId } = completedJob();
-    const oldId = raiseDispute({ jobId: job.id, userId, reason: "Work not done properly", detail: "First legacy approval" });
-    run("UPDATE dispute SET status = 'resolved', resolution = 'revisit: First approval.', resolvedAt = ? WHERE id = ?", new Date(Date.now() - 1000).toISOString(), oldId);
-    const disputeId = raiseDispute({ jobId: job.id, userId, reason: "Work not done properly", detail: "Latest legacy approval" });
-    run("UPDATE dispute SET status = 'resolved', resolution = 'revisit: Check again.', resolvedAt = ? WHERE id = ?", new Date().toISOString(), disputeId);
+  it("brings prior approved revisits into the scheduling queue once", async () => {
+    const { job, userId } = await completedJob();
+    const oldId = await raiseDispute({ jobId: job.id, userId, reason: "Work not done properly", detail: "First legacy approval" });
+    await run("UPDATE dispute SET status = 'resolved', resolution = 'revisit: First approval.', resolvedAt = ? WHERE id = ?", new Date(Date.now() - 1000).toISOString(), oldId);
+    const disputeId = await raiseDispute({ jobId: job.id, userId, reason: "Work not done properly", detail: "Latest legacy approval" });
+    await run("UPDATE dispute SET status = 'resolved', resolution = 'revisit: Check again.', resolvedAt = ? WHERE id = ?", new Date().toISOString(), disputeId);
     seedIfEmpty(getDb());
     seedIfEmpty(getDb());
-    const visits = revisitsForResident(userId).filter((visit) => visit.disputeId === disputeId);
+    const visits = (await revisitsForResident(userId)).filter((visit) => visit.disputeId === disputeId);
     expect(visits).toHaveLength(1);
     expect(visits[0].status).toBe("awaiting_schedule");
     expect(visits[0].startOtp).not.toBe(visits[0].endOtp);
-    expect(revisitsForResident(userId).some((visit) => visit.disputeId === oldId)).toBe(false);
+    expect((await revisitsForResident(userId)).some((visit) => visit.disputeId === oldId)).toBe(false);
   });
 });
 
 describe("notifications", () => {
-  it("tells the neighbours already in when the price drops", () => {
-    const id = newDeal({ target: 10 });
-    simulateJoins(id, 5); // the fifth join crosses the first slab
-    const first = getDealView(id)!.members[0];
-    const theirs = listNotifications(first.userId).filter((n) => n.dealId === id);
+  it("tells the neighbours already in when the price drops", async () => {
+    const id = await newDeal({ target: 10 });
+    await simulateJoins(id, 5); // the fifth join crosses the first slab
+    const first = (await getDealView(id))!.members[0];
+    const theirs = (await listNotifications(first.userId)).filter((n) => n.dealId === id);
     expect(theirs.some((n) => n.type === "price_drop")).toBe(true);
-    expect(unreadCount(first.userId)).toBeGreaterThan(0);
+    expect(await unreadCount(first.userId)).toBeGreaterThan(0);
   });
 
-  it("tells the society when a group is confirmed, and when one doesn't fill", () => {
-    const locked = newDeal({ target: 10 });
-    simulateJoins(locked, 9);
-    const member = getDealView(locked)!.members[0];
-    lockDeal(locked);
-    expect(listNotifications(member.userId).some((n) => n.type === "locked")).toBe(true);
+  it("tells the society when a group is confirmed, and when one doesn't fill", async () => {
+    const locked = await newDeal({ target: 10 });
+    await simulateJoins(locked, 9);
+    const member = (await getDealView(locked))!.members[0];
+    await lockDeal(locked);
+    expect((await listNotifications(member.userId)).some((n) => n.type === "locked")).toBe(true);
 
-    const dead = newDeal();
-    simulateJoins(dead, 1);
-    const lonely = getDealView(dead)!.members[0];
-    run("UPDATE deal SET joinDeadline = ?, extendedAt = ? WHERE id = ?",
+    const dead = await newDeal();
+    await simulateJoins(dead, 1);
+    const lonely = (await getDealView(dead))!.members[0];
+    await run("UPDATE deal SET joinDeadline = ?, extendedAt = ? WHERE id = ?",
       new Date(Date.now() - 60_000).toISOString(), new Date().toISOString(), dead);
-    tickDeal(dead);
-    expect(listNotifications(lonely.userId).some((n) => n.type === "expired")).toBe(true);
+    await tickDeal(dead);
+    expect((await listNotifications(lonely.userId)).some((n) => n.type === "expired")).toBe(true);
   });
 
-  it("announces a new group to the rest of the society", () => {
-    const before = listNotifications("usr_kulkarni").length;
-    newDeal();
-    expect(listNotifications("usr_kulkarni").length).toBeGreaterThan(before);
+  it("announces a new group to the rest of the society", async () => {
+    const before = (await listNotifications("usr_kulkarni")).length;
+    await newDeal();
+    expect((await listNotifications("usr_kulkarni")).length).toBeGreaterThan(before);
   });
 });

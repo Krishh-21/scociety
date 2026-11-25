@@ -1,0 +1,635 @@
+/*
+ * Signed-in app shell. Everything here is namespaced `jd-` and only applies
+ * inside `.jd-app` (or the login screen's `.jd-auth`), so the public pages and
+ * app/globals.css tokens are untouched. Colour comes from the global tokens
+ * where it should follow the theme, and from the fixed forest/lime brand
+ * values below for the surfaces that stay dark in both themes.
+ *
+ * Same layer order Tailwind declares, so loading this file first can never
+ * reorder the cascade; rules sit in `components` so utilities still win.
+ */
+@layer properties, theme, base, components, utilities;
+
+@layer components {
+  .jd-app,
+  .jd-auth,
+  .jd-console-head {
+    --jd-forest: #132c24;
+    --jd-forest-2: #1b3a30;
+    --jd-evergreen: #156348;
+    --jd-paper: #f7f6f0;
+    --jd-lime: #dce99e;
+    --jd-on-forest: #f7f6f0;
+    --jd-on-forest-muted: rgb(247 246 240 / 0.68);
+    --jd-nav-active-bg: var(--jd-lime);
+    --jd-nav-active-fg: var(--jd-forest);
+    --jd-side-w: 256px;
+    --jd-shadow: 0 1px 2px rgb(19 44 36 / 0.06), 0 8px 24px -12px rgb(19 44 36 / 0.18);
+  }
+  :root[data-theme="dark"] :is(.jd-app, .jd-auth, .jd-console-head) {
+    --jd-forest: #0c1d17;
+    --jd-forest-2: #14291f;
+    --jd-nav-active-bg: rgb(220 233 158 / 0.16);
+    --jd-nav-active-fg: var(--jd-lime);
+    --jd-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 28px -14px rgb(0 0 0 / 0.7);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) :is(.jd-app, .jd-auth, .jd-console-head) {
+      --jd-forest: #0c1d17;
+      --jd-forest-2: #14291f;
+      --jd-nav-active-bg: rgb(220 233 158 / 0.16);
+      --jd-nav-active-fg: var(--jd-lime);
+      --jd-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 28px -14px rgb(0 0 0 / 0.7);
+    }
+  }
+
+  /* ------------------------------------------------------------ frame */
+  .jd-app {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--color-canvas);
+    color: var(--color-ink-900);
+  }
+  .jd-column {
+    width: 100%;
+    max-width: 800px;
+    margin-inline: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  .jd-app[data-wide] .jd-column {
+    max-width: 1200px;
+  }
+  @media (min-width: 1024px) {
+    .jd-app:has(.jd-nav) {
+      padding-inline-start: var(--jd-side-w);
+    }
+  }
+
+  /* ----------------------------------------------------------- header */
+  .jd-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: color-mix(in srgb, var(--color-canvas) 90%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    -webkit-backdrop-filter: saturate(1.4) blur(10px);
+    border-bottom: 1px solid var(--color-line);
+  }
+  .jd-header__title {
+    font-size: 19px;
+    line-height: 1.2;
+    font-weight: 800;
+    letter-spacing: -0.015em;
+  }
+  @media (min-width: 640px) {
+    .jd-header {
+      padding: 14px 24px;
+    }
+  }
+  @media (min-width: 1024px) {
+    .jd-header {
+      padding: 22px 32px 16px;
+      border-bottom-color: transparent;
+    }
+    .jd-header__title {
+      font-size: 26px;
+    }
+  }
+
+  .jd-icon-btn {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    color: var(--color-ink-700);
+    transition: background-color 140ms ease, border-color 140ms ease;
+  }
+  .jd-icon-btn:hover {
+    border-color: var(--color-ink-300);
+  }
+
+  /* -------------------------------------------- navigation: mobile bar */
+  .jd-nav {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+    background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+    backdrop-filter: saturate(1.4) blur(12px);
+    -webkit-backdrop-filter: saturate(1.4) blur(12px);
+    border-top: 1px solid var(--color-line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .jd-nav[data-mobile="false"] {
+    display: none;
+  }
+  .jd-nav__brand,
+  .jd-nav__extra,
+  .jd-nav__cta {
+    display: none;
+  }
+  .jd-nav__list {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    max-width: 560px;
+    margin-inline: auto;
+    padding: 6px 4px 4px;
+  }
+  .jd-nav__item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    min-height: 56px;
+    padding: 2px 0 4px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.15;
+    text-align: center;
+    color: var(--color-ink-500);
+  }
+  .jd-nav__icon {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    max-width: 100%;
+    height: 30px;
+    border-radius: 999px;
+    transition: background-color 160ms ease;
+  }
+  .jd-nav__item:hover .jd-nav__icon {
+    background: var(--color-canvas-alt);
+  }
+  .jd-nav__item[aria-current="page"] {
+    color: var(--color-ink-900);
+  }
+  .jd-nav__item[aria-current="page"] .jd-nav__icon {
+    background: var(--jd-nav-active-bg);
+    color: var(--jd-nav-active-fg);
+  }
+
+  /* ------------------------------------------- navigation: desktop rail */
+  @media (min-width: 1024px) {
+    .jd-nav,
+    .jd-nav[data-mobile="false"] {
+      position: fixed;
+      inset-block: 0;
+      inset-inline-start: 0;
+      width: var(--jd-side-w);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 24px 16px;
+      border-top: 0;
+      background: var(--jd-forest);
+      color: var(--jd-on-forest);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      overflow-y: auto;
+    }
+    .jd-nav :focus-visible {
+      outline-color: var(--jd-lime);
+    }
+    .jd-nav__brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 10px 24px;
+      color: var(--jd-on-forest);
+      font-size: 21px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .jd-nav__list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-width: none;
+      margin: 0;
+      padding: 0;
+    }
+    .jd-nav__item {
+      flex-direction: row;
+      gap: 12px;
+      min-height: 46px;
+      padding: 0 12px 0 6px;
+      font-size: 15px;
+      font-weight: 700;
+      text-align: start;
+      color: var(--jd-on-forest-muted);
+    }
+    .jd-nav__icon {
+      width: 36px;
+      height: 36px;
+    }
+    .jd-nav__item:hover {
+      color: var(--jd-on-forest);
+      background: rgb(247 246 240 / 0.06);
+    }
+    .jd-nav__item:hover .jd-nav__icon {
+      background: transparent;
+    }
+    .jd-nav__item[aria-current="page"] {
+      background: var(--jd-lime);
+      color: #132c24;
+    }
+    .jd-nav__item[aria-current="page"] .jd-nav__icon {
+      background: transparent;
+      color: #132c24;
+    }
+    .jd-nav__extra {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid rgb(247 246 240 / 0.12);
+    }
+    .jd-nav__extra .jd-nav__item {
+      min-height: 40px;
+      font-size: 14px;
+    }
+    .jd-nav__cta {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: auto;
+      min-height: 48px;
+      border-radius: 999px;
+      background: var(--jd-lime);
+      color: #132c24;
+      font-weight: 800;
+      font-size: 15px;
+      transition: filter 140ms ease;
+    }
+    .jd-nav__cta:hover {
+      filter: brightness(1.05);
+    }
+  }
+
+  /* --------------------------------------------- forest hero surfaces */
+  .jd-band {
+    position: relative;
+    overflow: hidden;
+    border-radius: 22px;
+    background: var(--jd-forest);
+    color: var(--jd-on-forest);
+    isolation: isolate;
+  }
+  .jd-band::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset-block-start: -40%;
+    inset-inline-end: -18%;
+    width: 60%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgb(220 233 158 / 0.22), transparent 65%);
+    pointer-events: none;
+  }
+  .jd-band :focus-visible {
+    outline-color: var(--jd-lime);
+  }
+  .jd-band__muted {
+    color: var(--jd-on-forest-muted);
+  }
+  .jd-band__kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--jd-lime);
+  }
+  .jd-btn-lime {
+    background: var(--jd-lime);
+    color: #132c24;
+  }
+  .jd-btn-lime:hover {
+    filter: brightness(1.05);
+  }
+  .jd-btn-ghost-light {
+    background: rgb(247 246 240 / 0.1);
+    color: var(--jd-on-forest);
+    box-shadow: inset 0 0 0 1px rgb(247 246 240 / 0.22);
+  }
+  .jd-btn-ghost-light:hover {
+    background: rgb(247 246 240 / 0.16);
+  }
+
+  /* ----------------------------------------------------- quick actions */
+  .jd-action {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 112px;
+    padding: 14px;
+    border-radius: 18px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    transition: border-color 140ms ease, box-shadow 160ms ease, transform 160ms ease;
+  }
+  .jd-action:hover {
+    border-color: var(--color-ink-300);
+    box-shadow: var(--jd-shadow);
+  }
+  .jd-action__icon {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--color-canvas-alt);
+    color: var(--color-ink-700);
+  }
+  .jd-action[data-primary] {
+    background: var(--color-brand-600);
+    border-color: transparent;
+    color: #fff;
+  }
+  .jd-action[data-primary] .jd-action__icon {
+    background: rgb(255 255 255 / 0.16);
+    color: #fff;
+  }
+  .jd-action__note {
+    color: var(--color-ink-500);
+  }
+  .jd-action[data-primary] .jd-action__note {
+    color: rgb(255 255 255 / 0.82);
+  }
+
+  /* ------------------------------------------------------ cards, lists */
+  .jd-lift {
+    transition: box-shadow 160ms ease, border-color 140ms ease, transform 160ms ease;
+  }
+  .jd-lift:hover {
+    box-shadow: var(--jd-shadow);
+    border-color: var(--color-ink-300);
+  }
+  @media (hover: hover) {
+    .jd-lift:hover {
+      transform: translateY(-1px);
+    }
+  }
+  .jd-section-title {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    color: var(--color-ink-900);
+  }
+  .jd-card-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  }
+
+  /* ------------------------------------------------- booking journey */
+  .jd-steps {
+    display: grid;
+    grid-template-columns: repeat(var(--jd-steps, 5), minmax(0, 1fr));
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .jd-step {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    text-align: center;
+    font-size: 11px;
+    line-height: 1.2;
+    font-weight: 600;
+    color: var(--color-ink-500);
+  }
+  .jd-step::before {
+    content: "";
+    position: absolute;
+    inset-block-start: 11px;
+    inset-inline-start: calc(-50% + 14px);
+    inset-inline-end: calc(50% + 14px);
+    height: 2px;
+    border-radius: 2px;
+    background: var(--color-line);
+  }
+  .jd-step:first-child::before {
+    display: none;
+  }
+  .jd-step[data-state="done"]::before,
+  .jd-step[data-state="current"]::before {
+    background: var(--color-brand-600);
+  }
+  .jd-step__dot {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    border: 2px solid var(--color-line);
+    background: var(--color-surface);
+    color: #fff;
+  }
+  .jd-step[data-state="done"] .jd-step__dot {
+    background: var(--color-brand-600);
+    border-color: var(--color-brand-600);
+  }
+  .jd-step[data-state="current"] {
+    color: var(--color-ink-900);
+    font-weight: 800;
+  }
+  .jd-step[data-state="current"] .jd-step__dot {
+    border-color: var(--color-brand-600);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-brand-600) 18%, transparent);
+  }
+  .jd-step[data-state="current"] .jd-step__dot::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--color-brand-600);
+  }
+
+  /* ------------------------------------------------ visitor alert */
+  .jd-alert {
+    position: relative;
+    display: flex;
+    gap: 14px;
+    padding: 16px;
+    border-radius: 18px;
+    background: var(--color-warn-50);
+    border: 1px solid color-mix(in srgb, var(--color-warn-500) 45%, transparent);
+    border-inline-start-width: 5px;
+    border-inline-start-color: var(--color-warn-500);
+  }
+  .jd-alert__icon {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 42px;
+    height: 42px;
+    border-radius: 999px;
+    background: var(--color-warn-500);
+    color: #1d1302;
+  }
+  .jd-alert__icon::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    border: 2px solid var(--color-warn-500);
+    opacity: 0;
+    animation: jd-ping 2.2s ease-out infinite;
+  }
+  .jd-alert__kicker {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-warn-600);
+  }
+  @media (max-width: 379px) {
+    .jd-alert {
+      gap: 10px;
+      padding: 14px 12px;
+    }
+    .jd-alert__icon {
+      width: 34px;
+      height: 34px;
+    }
+  }
+  @keyframes jd-ping {
+    0% { transform: scale(0.9); opacity: 0.7; }
+    80%, 100% { transform: scale(1.35); opacity: 0; }
+  }
+
+  /* Deep-linked entry tickets (#visit-…) and notices stand out on arrival. */
+  .jd-target:target {
+    outline: 3px solid var(--color-warn-500);
+    outline-offset: 2px;
+  }
+
+  /* ------------------------------------------------- consoles */
+  .jd-console-head {
+    background: var(--jd-forest);
+    color: var(--jd-on-forest);
+  }
+  .jd-console-head :focus-visible {
+    outline-color: var(--jd-lime);
+  }
+  .jd-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px;
+    border-radius: var(--radius-card);
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+  }
+  .jd-stat__label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-ink-500);
+  }
+  .jd-stat__value {
+    font-size: 22px;
+    line-height: 1.15;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+  }
+  a.jd-stat {
+    transition: border-color 140ms ease, box-shadow 160ms ease;
+  }
+  a.jd-stat:hover {
+    border-color: var(--color-ink-300);
+    box-shadow: var(--jd-shadow);
+  }
+
+  /* ------------------------------------------------- join bar + dialog */
+  .jd-joinbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-line);
+  }
+  @media (min-width: 640px) {
+    .jd-joinbar {
+      bottom: 16px;
+      width: min(100% - 32px, 560px);
+      margin: 8px auto 16px;
+      padding: 14px 16px;
+      border: 1px solid var(--color-line);
+      border-radius: 22px;
+      box-shadow: var(--jd-shadow);
+    }
+  }
+  .jd-sheet {
+    width: 100%;
+    max-width: 480px;
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    border-radius: 28px 28px 0 0;
+    background: var(--color-surface);
+    padding: 20px 20px calc(24px + env(safe-area-inset-bottom));
+  }
+  @media (min-width: 640px) {
+    .jd-sheet {
+      border-radius: 28px;
+      padding: 24px;
+      box-shadow: 0 30px 60px -20px rgb(0 0 0 / 0.45);
+    }
+  }
+
+  /* ------------------------------------------------- auth screen */
+  .jd-auth {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: grid;
+    background: var(--color-canvas);
+  }
+  .jd-auth__aside {
+    display: none;
+  }
+  @media (min-width: 1024px) {
+    .jd-auth {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .jd-auth__aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 48px;
+      background: var(--jd-forest);
+      color: var(--jd-on-forest);
+      overflow: hidden;
+    }
+    .jd-auth__aside :focus-visible {
+      outline-color: var(--jd-lime);
+    }
+  }
+}

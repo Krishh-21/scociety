@@ -14,12 +14,12 @@ const {
   listFinanceBills, recordDuesPayment, remindOutstandingDues, reportBankBalance, settleFinanceExpense,
 } = await import("@/lib/society-finance");
 
-function actor(userId: string): Me {
-  const user = one<Me["user"]>("SELECT * FROM user WHERE id = ?", userId)!;
-  const residency = one<NonNullable<Me["residency"]>>(
+async function actor(userId: string): Promise<Me> {
+  const user = (await one<Me["user"]>("SELECT * FROM user WHERE id = ?", userId))!;
+  const residency = (await one<NonNullable<Me["residency"]>>(
     `SELECT r.*, s.name AS societyName FROM residency r JOIN society s ON s.id = r.societyId
      WHERE r.userId = ?`, userId,
-  );
+  ));
   return { user, residency };
 }
 
@@ -36,120 +36,120 @@ afterAll(() => {
 });
 
 describe("society finance", () => {
-  it("issues a single itemized monthly bill per verified flat and preserves the cycle on retry", () => {
-    const committee = actor("usr_kulkarni");
-    const resident = actor("usr_rahul");
-    run("UPDATE residency SET status = 'pending' WHERE userId = ?", "usr_n1");
+  it("issues a single itemized monthly bill per verified flat and preserves the cycle on retry", async () => {
+    const committee = (await actor("usr_kulkarni"));
+    const resident = (await actor("usr_rahul"));
+    (await run("UPDATE residency SET status = 'pending' WHERE userId = ?", "usr_n1"));
 
-    const { issued, existing } = issueMonthlyDues(committee, issueInput);
+    const { issued, existing } = (await issueMonthlyDues(committee, issueInput));
     expect(issued).toBeGreaterThan(0);
     expect(existing).toBe(0);
-    expect(issueMonthlyDues(committee, issueInput)).toEqual({ issued: 0, existing: issued });
-    expect(() => issueMonthlyDues(committee, { ...issueInput, dueOn: "2026-01-20" })).toThrow(/already issued/i);
-    expect(() => issueMonthlyDues(committee, { ...issueInput, month: "2026-02", dueOn: "2026-02-29" })).toThrow();
-    expect(listFinanceBills(committee, "society")).toHaveLength(issued);
-    expect(() => listFinanceBills(actor("usr_n1"), "mine")).toThrow();
-    expect(() => issueMonthlyDues(resident, issueInput)).toThrow();
+    expect((await issueMonthlyDues(committee, issueInput))).toEqual({ issued: 0, existing: issued });
+    await expect((async () => (await issueMonthlyDues(committee, { ...issueInput, dueOn: "2026-01-20" })))()).rejects.toThrow(/already issued/i);
+    await expect((async () => (await issueMonthlyDues(committee, { ...issueInput, month: "2026-02", dueOn: "2026-02-29" })))()).rejects.toThrow();
+    expect((await listFinanceBills(committee, "society"))).toHaveLength(issued);
+    await expect((async () => (await listFinanceBills((await actor("usr_n1")), "mine")))()).rejects.toThrow();
+    await expect((async () => (await issueMonthlyDues(resident, issueInput)))()).rejects.toThrow();
 
-    const bills = listFinanceBills(resident, "mine");
+    const bills = (await listFinanceBills(resident, "mine"));
     expect(bills).toHaveLength(1);
     expect(bills[0]).toMatchObject({ flat: "A-402", totalPaise: 174075 });
-    expect(financeBill(resident, bills[0].id)?.items).toEqual([
+    expect((await financeBill(resident, bills[0].id))?.items).toEqual([
       { label: "Maintenance", amountPaise: 150050 },
       { label: "Water", amountPaise: 24025 },
     ]);
   });
 
-  it("restricts bill access and settles a full payment only once", () => {
-    const committee = actor("usr_kulkarni");
-    const resident = actor("usr_rahul");
-    issueMonthlyDues(committee, issueInput);
-    const [bill] = listFinanceBills(resident, "mine");
+  it("restricts bill access and settles a full payment only once", async () => {
+    const committee = (await actor("usr_kulkarni"));
+    const resident = (await actor("usr_rahul"));
+    (await issueMonthlyDues(committee, issueInput));
+    const [bill] = (await listFinanceBills(resident, "mine"));
     const payment = { billId: bill.id, method: "bank_transfer", reference: "UTR-42", paidOn: "2026-01-15" };
-    run("UPDATE residency SET societyId = ? WHERE userId = ?", "soc_palm_grove", "usr_n2");
-    run("UPDATE user SET role = 'secretary' WHERE id = ?", "usr_n2");
-    const otherCommittee = actor("usr_n2");
+    (await run("UPDATE residency SET societyId = ? WHERE userId = ?", "soc_palm_grove", "usr_n2"));
+    (await run("UPDATE user SET role = 'secretary' WHERE id = ?", "usr_n2"));
+    const otherCommittee = (await actor("usr_n2"));
 
-    expect(financeBill(actor("usr_n1"), bill.id)).toBeNull();
-    expect(financeBill(otherCommittee, bill.id)).toBeNull();
-    expect(() => recordDuesPayment(otherCommittee, payment)).toThrow();
-    expect(() => recordDuesPayment(resident, payment)).toThrow();
-    expect(financeBill(resident, bill.id)?.payment).toBeNull();
+    expect((await financeBill((await actor("usr_n1")), bill.id))).toBeNull();
+    expect((await financeBill(otherCommittee, bill.id))).toBeNull();
+    await expect((async () => (await recordDuesPayment(otherCommittee, payment)))()).rejects.toThrow();
+    await expect((async () => (await recordDuesPayment(resident, payment)))()).rejects.toThrow();
+    expect((await financeBill(resident, bill.id))?.payment).toBeNull();
 
-    recordDuesPayment(committee, payment);
-    expect(() => recordDuesPayment(committee, payment)).toThrow(/already paid/i);
-    expect(financeBill(resident, bill.id)?.payment).toMatchObject({ reference: "UTR-42", amountPaise: 174075 });
-    expect(financeSummary(committee.residency!.societyId).collectedPaise).toBe(174075);
+    (await recordDuesPayment(committee, payment));
+    await expect((async () => (await recordDuesPayment(committee, payment)))()).rejects.toThrow(/already paid/i);
+    expect((await financeBill(resident, bill.id))?.payment).toMatchObject({ reference: "UTR-42", amountPaise: 174075 });
+    expect((await financeSummary(committee.residency!.societyId)).collectedPaise).toBe(174075);
   });
 
-  it("limits reminders to outstanding flats and suppresses repeated reminders on the same day", () => {
-    const committee = actor("usr_kulkarni");
-    const rahul = actor("usr_rahul");
-    issueMonthlyDues(committee, issueInput);
-    const [bill] = listFinanceBills(rahul, "mine");
-    expect(remindOutstandingDues(committee, bill.id)).toBe(1);
-    expect(remindOutstandingDues(committee, bill.id)).toBe(0);
-    expect(listNotifications(rahul.user.id).filter((n) => n.type === "society_dues_reminder")).toEqual([
+  it("limits reminders to outstanding flats and suppresses repeated reminders on the same day", async () => {
+    const committee = (await actor("usr_kulkarni"));
+    const rahul = (await actor("usr_rahul"));
+    (await issueMonthlyDues(committee, issueInput));
+    const [bill] = (await listFinanceBills(rahul, "mine"));
+    expect((await remindOutstandingDues(committee, bill.id))).toBe(1);
+    expect((await remindOutstandingDues(committee, bill.id))).toBe(0);
+    expect((await listNotifications(rahul.user.id)).filter((n) => n.type === "society_dues_reminder")).toEqual([
       expect.objectContaining({ dealId: null }),
     ]);
-    expect(listNotifications("usr_n1").some((n) => n.type === "society_dues_reminder")).toBe(false);
-    recordDuesPayment(committee, { billId: bill.id, method: "cash", reference: "CASH-42", paidOn: "2026-01-15" });
-    expect(remindOutstandingDues(committee, bill.id)).toBe(0);
+    expect((await listNotifications("usr_n1")).some((n) => n.type === "society_dues_reminder")).toBe(false);
+    (await recordDuesPayment(committee, { billId: bill.id, method: "cash", reference: "CASH-42", paidOn: "2026-01-15" }));
+    expect((await remindOutstandingDues(committee, bill.id))).toBe(0);
   });
 
-  it("combines outstanding months into one bulk reminder per flat", () => {
-    const committee = actor("usr_kulkarni");
-    const { issued } = issueMonthlyDues(committee, issueInput);
-    issueMonthlyDues(committee, { ...issueInput, month: "2026-02", dueOn: "2026-02-15" });
-    expect(remindOutstandingDues(committee)).toBe(issued);
-    const reminders = listNotifications("usr_rahul").filter((n) => n.type === "society_dues_reminder");
+  it("combines outstanding months into one bulk reminder per flat", async () => {
+    const committee = (await actor("usr_kulkarni"));
+    const { issued } = (await issueMonthlyDues(committee, issueInput));
+    (await issueMonthlyDues(committee, { ...issueInput, month: "2026-02", dueOn: "2026-02-15" }));
+    expect((await remindOutstandingDues(committee))).toBe(issued);
+    const reminders = (await listNotifications("usr_rahul")).filter((n) => n.type === "society_dues_reminder");
     expect(reminders).toHaveLength(1);
     expect(reminders[0].body).toContain("2 outstanding maintenance bills");
-    expect(remindOutstandingDues(committee)).toBe(0);
+    expect((await remindOutstandingDues(committee))).toBe(0);
   });
 
-  it("keeps vendor invoices private and separates payable amounts from money spent", () => {
-    const committee = actor("usr_kulkarni");
-    const expenseId = addFinanceExpense(committee, {
+  it("keeps vendor invoices private and separates payable amounts from money spent", async () => {
+    const committee = (await actor("usr_kulkarni"));
+    const expenseId = (await addFinanceExpense(committee, {
       label: "Lift service", category: "Repairs", vendor: "Lift Co", invoiceReference: "INV-77",
       rupees: "1750.50", incurredOn: "2026-01-10", dueOn: "2026-01-16", kind: "vendor_bill", paymentReference: "",
-    });
-    expect(() => financeExpenses(actor("usr_rahul"))).toThrow();
-    expect(financeSummary(committee.residency!.societyId)).toMatchObject({ expensePaise: 0, vendorDuePaise: 175050 });
-    settleFinanceExpense(committee, { expenseId, paidOn: "2026-01-16", paymentReference: "NEFT-77" });
-    expect(financeExpenses(committee)[0]).toMatchObject({ paidOn: "2026-01-16", paymentReference: "NEFT-77" });
-    expect(financeSummary(committee.residency!.societyId)).toMatchObject({ expensePaise: 175050, vendorDuePaise: 0 });
+    }));
+    await expect((async () => (await financeExpenses((await actor("usr_rahul")))))()).rejects.toThrow();
+    expect((await financeSummary(committee.residency!.societyId))).toMatchObject({ expensePaise: 0, vendorDuePaise: 175050 });
+    (await settleFinanceExpense(committee, { expenseId, paidOn: "2026-01-16", paymentReference: "NEFT-77" }));
+    expect((await financeExpenses(committee))[0]).toMatchObject({ paidOn: "2026-01-16", paymentReference: "NEFT-77" });
+    expect((await financeSummary(committee.residency!.societyId))).toMatchObject({ expensePaise: 175050, vendorDuePaise: 0 });
   });
 
-  it("stores receipt photos privately and rejects files with mismatched content", () => {
-    const committee = actor("usr_kulkarni");
+  it("stores receipt photos privately and rejects files with mismatched content", async () => {
+    const committee = (await actor("usr_kulkarni"));
     const input = {
       label: "Lift service", category: "Repairs", vendor: "Lift Co", invoiceReference: "INV-77",
       rupees: "1750.50", incurredOn: "2026-01-10", dueOn: "2026-01-16", kind: "vendor_bill", paymentReference: "",
     };
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==", "base64");
-    expect(() => addFinanceExpense(committee, {
+    await expect((async () => (await addFinanceExpense(committee, {
       ...input, receipt: { contentType: "image/jpeg", bytes: png },
-    })).toThrow(/JPEG or PNG/);
-    expect(financeExpenses(committee)).toHaveLength(0);
+    })))()).rejects.toThrow(/JPEG or PNG/);
+    expect((await financeExpenses(committee))).toHaveLength(0);
 
-    const expenseId = addFinanceExpense(committee, { ...input, receipt: { contentType: "image/png", bytes: png } });
-    expect(financeExpenses(committee)[0].hasReceipt).toBe(1);
-    expect(financeExpenseReceipt(committee, expenseId)?.contentType).toBe("image/png");
-    expect(Buffer.from(financeExpenseReceipt(committee, expenseId)!.bytes)).toEqual(png);
-    expect(() => financeExpenseReceipt(actor("usr_rahul"), expenseId)).toThrow();
-    run("UPDATE residency SET societyId = ? WHERE userId = ?", "soc_palm_grove", committee.user.id);
-    expect(financeExpenseReceipt(actor(committee.user.id), expenseId)).toBeNull();
+    const expenseId = (await addFinanceExpense(committee, { ...input, receipt: { contentType: "image/png", bytes: png } }));
+    expect((await financeExpenses(committee))[0].hasReceipt).toBe(1);
+    expect((await financeExpenseReceipt(committee, expenseId))?.contentType).toBe("image/png");
+    expect(Buffer.from((await financeExpenseReceipt(committee, expenseId))!.bytes)).toEqual(png);
+    await expect((async () => (await financeExpenseReceipt((await actor("usr_rahul")), expenseId)))()).rejects.toThrow();
+    (await run("UPDATE residency SET societyId = ? WHERE userId = ?", "soc_palm_grove", committee.user.id));
+    expect((await financeExpenseReceipt((await actor(committee.user.id)), expenseId))).toBeNull();
   });
 
-  it("uses the latest dated committee report as the bank balance", () => {
-    const committee = actor("usr_kulkarni");
+  it("uses the latest dated committee report as the bank balance", async () => {
+    const committee = (await actor("usr_kulkarni"));
     const societyId = committee.residency!.societyId;
-    expect(financeSummary(societyId).bankBalancePaise).toBeNull();
-    expect(() => reportBankBalance(actor("usr_rahul"), { rupees: "800", reportedOn: "2026-01-20" })).toThrow();
-    reportBankBalance(committee, { rupees: "0.00", reportedOn: "2026-01-20" });
-    reportBankBalance(committee, { rupees: "800", reportedOn: "2026-01-19" });
-    expect(financeSummary(societyId)).toMatchObject({ bankBalancePaise: 0, bankBalanceOn: "2026-01-20" });
-    expect(financeSummary("soc_palm_grove").bankBalancePaise).toBeNull();
+    expect((await financeSummary(societyId)).bankBalancePaise).toBeNull();
+    await expect((async () => (await reportBankBalance((await actor("usr_rahul")), { rupees: "800", reportedOn: "2026-01-20" })))()).rejects.toThrow();
+    (await reportBankBalance(committee, { rupees: "0.00", reportedOn: "2026-01-20" }));
+    (await reportBankBalance(committee, { rupees: "800", reportedOn: "2026-01-19" }));
+    expect((await financeSummary(societyId))).toMatchObject({ bankBalancePaise: 0, bankBalanceOn: "2026-01-20" });
+    expect((await financeSummary("soc_palm_grove")).bankBalancePaise).toBeNull();
   });
 });

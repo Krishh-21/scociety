@@ -39,7 +39,7 @@ export function LogVisitForm({ flats }: { flats: { id: string; flat: string; nam
           </select>
         </label>
         <label className="flex min-w-0 flex-col gap-1 text-[13px] font-bold">
-          Verified flat
+          Flat to visit
           <select name="residencyId" className={inputClass} defaultValue="" required>
             <option value="" disabled>Choose a flat</option>
             {flats.map(({ id, flat, name }) => <option key={id} value={id}>{flat} · {name}</option>)}
@@ -48,6 +48,11 @@ export function LogVisitForm({ flats }: { flats: { id: string; flat: string; nam
       </div>
       <button className="btn btn-primary" disabled={pending}>{pending ? "Sending…" : "Request entry"}</button>
       <FormMessage state={state} />
+      {state.visitId && (
+        <a href={`#visit-${state.visitId}`} className="self-start text-sm font-bold text-brand-700 underline">
+          View entry ticket
+        </a>
+      )}
     </form>
   );
 }

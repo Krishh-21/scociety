@@ -144,10 +144,11 @@ export default function JoinSheet({
 
   return (
     <>
-      <div className="sticky bottom-0 bg-surface border-t border-line px-4 py-3 z-30" aria-busy={pending || leaving}>
+      <div className="jd-joinbar" aria-busy={pending || leaving}>
         {joined ? (
-          <div className="flex gap-2 items-center">
-            <div className="flex-1">
+          <div className="flex gap-3 items-center">
+            <span aria-hidden="true" className="w-10 h-10 shrink-0 rounded-full bg-save-50 text-save-700 grid place-items-center font-extrabold">✓</span>
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-save-700">
                 {t.youreIn} · {deal.joinedByMe!.slot}
               </p>
@@ -189,17 +190,18 @@ export default function JoinSheet({
 
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-ink-900/40 flex items-end justify-center"
+          className="fixed inset-0 z-40 bg-[#0b1a15]/55 backdrop-blur-[2px] flex items-end sm:items-center justify-center sm:p-6"
           onClick={close}
           aria-busy={pending}
         >
           <div
             ref={sheetRef}
-            className="bg-surface w-full max-w-[460px] rounded-t-3xl p-5 pb-6"
+            className="jd-sheet"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label={`${t.join} — ${deal.sku.name}`}
+            aria-describedby={justJoined ? undefined : "join-sheet-total"}
           >
             {justJoined ? (
               <>
@@ -218,7 +220,11 @@ export default function JoinSheet({
               </>
             ) : (
               <>
-                <div className="flex gap-1.5 mb-4" aria-hidden="true">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <p className="eyebrow">{deal.sku.name}</p>
+                  <p className="text-[12px] font-bold text-ink-500 tnum">Step {step} of 3</p>
+                </div>
+                <div className="flex gap-1.5 mb-5" aria-hidden="true">
                   {[1, 2, 3].map((n) => (
                     <span key={n} className={`h-1.5 flex-1 rounded-full ${n <= step ? "bg-brand-600" : "bg-canvas-alt"}`} />
                   ))}
@@ -311,11 +317,11 @@ export default function JoinSheet({
                   </>
                 )}
 
-                <div className="card p-3 mb-4 flex items-center justify-between">
-                  <span className="text-sm text-ink-500">
+                <div id="join-sheet-total" className="rounded-2xl bg-canvas-alt p-3.5 mb-4 flex items-center justify-between gap-3">
+                  <span className="text-sm text-ink-700">
                     {units} × {deal.sku.unitLabel}
                   </span>
-                  <span className="tnum font-extrabold text-save-700">{rupees(priceIfIJoin * units)}</span>
+                  <span className="tnum text-[18px] font-extrabold text-save-700">{rupees(priceIfIJoin * units)}</span>
                 </div>
 
                 <div className="flex gap-2">

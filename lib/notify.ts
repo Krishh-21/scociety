@@ -4,6 +4,7 @@ export type Notification = {
   id: string;
   userId: string;
   dealId: string | null;
+  gateVisitId: string | null;
   type: string;
   title: string;
   body: string;
@@ -16,43 +17,47 @@ export type Notification = {
  * site fans out to FCM, WhatsApp and SMS — see docs/02-ux-flows.md §5 for which
  * of these are transactional (price drops change what you owe) and which are not.
  */
-export function notify(
+export async function notify(
   userIds: string[],
-  n: { type: string; title: string; body: string; dealId?: string },
+  n: { type: string; title: string; body: string; dealId?: string; gateVisitId?: string },
 ) {
   const at = new Date().toISOString();
-  for (const userId of new Set(userIds)) {
-    run(
-      "INSERT INTO notification (id,userId,dealId,type,title,body,createdAt,readAt) VALUES (?,?,?,?,?,?,?,NULL)",
-      id("ntf"), userId, n.dealId ?? null, n.type, n.title, n.body, at,
+  const recipients = [...new Set(userIds)];
+  const batchSize = 100;
+  for (let offset = 0; offset < recipients.length; offset += batchSize) {
+    const batch = recipients.slice(offset, offset + batchSize);
+    await run(
+      `INSERT INTO notification (id,userId,dealId,gateVisitId,type,title,body,createdAt)
+       VALUES ${batch.map(() => "(?,?,?,?,?,?,?,?)").join(",")}`,
+      ...batch.flatMap((userId) => [id("ntf"), userId, n.dealId ?? null, n.gateVisitId ?? null, n.type, n.title, n.body, at]),
     );
   }
 }
 
-export function listNotifications(userId: string, limit = 40): Notification[] {
+export async function listNotifications(userId: string, limit = 40): Promise<Notification[]> {
   return all<Notification>(
     "SELECT * FROM notification WHERE userId = ? ORDER BY createdAt DESC LIMIT ?",
     userId, limit,
   );
 }
 
-export function unreadCount(userId: string): number {
-  return one<{ n: number }>(
+export async function unreadCount(userId: string): Promise<number> {
+  const count = await one<{ n: number }>(
     "SELECT COUNT(*) AS n FROM notification WHERE userId = ? AND readAt IS NULL",
     userId,
-  )!.n;
+  );
+  return count!.n;
 }
 
-export function markAllRead(userId: string) {
-  run("UPDATE notification SET readAt = ? WHERE userId = ? AND readAt IS NULL", new Date().toISOString(), userId);
+export async function markAllRead(userId: string) {
+  await run("UPDATE notification SET readAt = ? WHERE userId = ? AND readAt IS NULL", new Date().toISOString(), userId);
 }
 
 /** Everyone verified in a society — the audience for a new group. */
-export function societyResidentIds(societyId: string, except?: string): string[] {
-  return all<{ userId: string }>(
+export async function societyResidentIds(societyId: string, except?: string): Promise<string[]> {
+  const residents = await all<{ userId: string }>(
     "SELECT userId FROM residency WHERE societyId = ? AND status = 'verified'",
     societyId,
-  )
-    .map((r) => r.userId)
-    .filter((uid) => uid !== except);
+  );
+  return residents.map((r) => r.userId).filter((uid) => uid !== except);
 }

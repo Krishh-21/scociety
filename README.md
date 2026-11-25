@@ -26,6 +26,19 @@ npm run build  # production build
 
 Requires Node 22+ (uses the built-in `node:sqlite` — no native modules to compile).
 
+## Private hosted demo
+
+Create a Supabase project and run `npm run db:hosted` with its Session pooler
+connection string in `DATABASE_URL`. Set `DATABASE_CA_CERT` to the PEM root
+certificate available in Supabase Database Settings. The initializer creates the
+`jodo_demo` schema and seeds it on the first run.
+
+For Vercel, use Node 24 and enable Vercel Authentication for every deployment
+before publishing. Set `DATABASE_URL` to the Transaction pooler connection string
+and `DATABASE_CA_CERT` to the same certificate. Set a random `CRON_SECRET` for
+the daily Vercel schedule in `vercel.json`. The app also checks deadlines as
+people use the booking pages. The hosted demo uses the same test accounts below.
+
 ## Signing in
 
 No SMS is sent; **the OTP is always `1234`.** Seeded accounts:

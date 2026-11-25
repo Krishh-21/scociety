@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { submitSocietyLead, submitVendorLead, type ActionState } from "@/app/actions";
 import { currentPrice, nextSlab, rupees } from "@/lib/pricing";
 import type { Slab } from "@/lib/types";
@@ -10,92 +10,123 @@ import type { Slab } from "@/lib/types";
 
 export function MobileMenu({ links }: { links: { href: string; label: string }[] }) {
   const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLElement>(null);
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    // Move focus into the menu, close on Escape (returning focus) or an outside click.
+    panel.current?.querySelector<HTMLElement>("a")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        button.current?.focus();
+      }
+    };
+    const onPointer = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!panel.current?.contains(t) && !button.current?.contains(t)) setOpen(false);
+    };
+    const onResize = () => window.matchMedia("(min-width: 768px)").matches && setOpen(false);
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+      window.removeEventListener("resize", onResize);
+    };
   }, [open]);
 
   return (
     <div className="md:hidden">
       <button
+        ref={button}
         type="button"
         aria-expanded={open}
         aria-controls="mobile-menu"
         aria-label={open ? "Close menu" : "Open menu"}
         onClick={() => setOpen((o) => !o)}
-        className="w-10 h-10 rounded-full grid place-items-center text-ink-700 hover:bg-canvas-alt"
+        className="w-10 h-10 rounded-full grid place-items-center text-ink-900 hover:bg-canvas-alt"
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
           {open ? <path d="M6 6l12 12M18 6 6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
         </svg>
       </button>
-      {open && (
-        <nav
-          id="mobile-menu"
-          aria-label="Site"
-          className="absolute left-0 right-0 top-16 bg-surface border-b border-line shadow-lg px-4 py-3 flex flex-col"
-        >
+      <nav
+        ref={panel}
+        id="mobile-menu"
+        aria-label="Site menu"
+        hidden={!open}
+        className="absolute left-0 right-0 top-16 bg-surface border-b border-line shadow-xl shadow-black/10 px-4 pt-2 pb-4"
+      >
+        <ul className="flex flex-col">
           {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              onClick={() => setOpen(false)}
-              className="py-3 text-[15px] font-semibold text-ink-700 border-b border-line last:border-0"
-            >
-              {l.label}
-            </Link>
+            <li key={l.href} className="border-b border-line last:border-0">
+              <Link
+                href={l.href}
+                onClick={() => setOpen(false)}
+                className="flex items-center justify-between py-3.5 text-[16px] font-semibold text-ink-900 rounded"
+              >
+                {l.label}
+                <span aria-hidden="true" className="text-ink-300">→</span>
+              </Link>
+            </li>
           ))}
-          <Link href="/login" onClick={() => setOpen(false)} className="btn btn-quiet mt-3">
+        </ul>
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <Link href="/login" onClick={() => setOpen(false)} className="btn mk-btn-outline">
             Sign in
           </Link>
-        </nav>
-      )}
+          <Link href="/#societies" onClick={() => setOpen(false)} className="btn btn-primary px-3 text-[14px]">
+            Request JODO
+          </Link>
+        </div>
+      </nav>
     </div>
   );
 }
 
 // ------------------------------------------------------------ ladder demo
 
-/**
- * The whole product in one control: drag the flat count and watch everyone's
- * price fall. Uses the real ladder from the catalogue, not made-up numbers.
- */
-export function LadderDemo({
-  serviceName,
-  unitLabel,
-  basisLabel,
-  listPricePaise,
-  slabs,
-}: {
-  serviceName: string;
+export type LadderService = {
+  id: string;
+  name: string;
+  /** Short name for the service switcher — "AC service". */
+  shortName: string;
   unitLabel: string;
   /** What the ladder counts — "AC units", "flats". */
   basisLabel: string;
   listPricePaise: number;
   slabs: Slab[];
-}) {
-  const max = Math.max(40, (slabs.at(-1)?.minFlats ?? 20) + 5);
-  const [count, setCount] = useState(4);
-  const [playing, setPlaying] = useState(false);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+};
 
-  const price = currentPrice(listPricePaise, slabs, count);
-  const next = nextSlab(slabs, count);
-  const saving = listPricePaise - price;
-  const rows = [{ minFlats: 1, pricePaise: listPricePaise }, ...slabs].sort((a, b) => a.minFlats - b.minFlats);
+const START = 4;
+
+/**
+ * The whole product in one control: drag the count and watch everyone's price fall.
+ * Every service, list price and slab comes from the live catalogue — nothing made up.
+ */
+export function LadderDemo({ services, initialId }: { services: LadderService[]; initialId?: string }) {
+  const [serviceId, setServiceId] = useState(initialId ?? services[0]?.id);
+  const svc = services.find((s) => s.id === serviceId) ?? services[0];
+  const [count, setCount] = useState(START);
+  const [playing, setPlaying] = useState(false);
+  const sliderId = useId();
+  const hintId = useId();
+
+  const slabs = svc ? [...svc.slabs].sort((a, b) => a.minFlats - b.minFlats) : [];
+  const max = Math.max(40, (slabs.at(-1)?.minFlats ?? 20) + 5);
   const target = slabs.at(-2)?.minFlats ?? slabs.at(-1)?.minFlats ?? 20;
 
   useEffect(() => {
     if (!playing) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       setCount(target);
       setPlaying(false);
       return;
     }
-    timer.current = setInterval(() => {
+    const timer = setInterval(() => {
       setCount((c) => {
         if (c >= target) {
           setPlaying(false);
@@ -103,90 +134,153 @@ export function LadderDemo({
         }
         return c + 1;
       });
-    }, 260);
-    return () => {
-      if (timer.current) clearInterval(timer.current);
-    };
+    }, 240);
+    return () => clearInterval(timer);
   }, [playing, target]);
 
-  return (
-    <div className="card p-5 sm:p-6 shadow-xl shadow-ink-900/5">
-      <div className="flex items-center justify-between mb-1">
-        <p className="eyebrow text-brand-700">Society announcement</p>
-        <span className="pill bg-brand-50 text-brand-700">Filling</span>
-      </div>
-      <p className="text-[19px] font-extrabold leading-snug">{serviceName} — this Sunday</p>
-      <p className="text-[13px] text-ink-500 mb-4">Green Valley Society · one vendor for the whole building</p>
+  if (!svc) return null;
 
-      <div className="flex items-end gap-3 flex-wrap" aria-live="polite">
-        <span className="tnum text-[46px] leading-none font-extrabold text-save-700 transition-all">{rupees(price)}</span>
-        <span className="text-ink-500 text-sm pb-1.5">per {unitLabel}</span>
-        {saving > 0 && <span className="tnum text-ink-300 line-through pb-1.5">{rupees(listPricePaise)}</span>}
+  const price = currentPrice(svc.listPricePaise, slabs, count);
+  const next = nextSlab(slabs, count);
+  const saving = svc.listPricePaise - price;
+  const rows = [{ minFlats: 1, pricePaise: svc.listPricePaise }, ...slabs];
+  const pct = ((count - 1) / (max - 1)) * 100;
+  const marks = new Set(slabs.map((s) => s.minFlats));
+
+  const pick = (id: string) => {
+    setPlaying(false);
+    setServiceId(id);
+    setCount(START);
+  };
+
+  return (
+    <div className="mk-forest rounded-[28px] p-5 sm:p-7 shadow-2xl shadow-[#132c24]/25 relative overflow-hidden">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] font-extrabold tracking-[0.12em] uppercase text-white/55">Live price ladder</p>
+        <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-[#dce99e]">
+          <span aria-hidden="true" className="w-2 h-2 rounded-full bg-[#dce99e] motion-safe:animate-pulse" />
+          Filling
+        </span>
       </div>
-      <p className="text-[13px] font-bold text-save-700 h-5 mt-1">
+
+      {services.length > 1 && (
+        <div role="group" aria-label="Choose a service" className="flex flex-wrap gap-1.5 mt-4">
+          {services.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              aria-pressed={s.id === svc.id}
+              onClick={() => pick(s.id)}
+              className={`rounded-full px-3 py-1.5 text-[13px] font-bold transition-colors ${
+                s.id === svc.id ? "bg-[#dce99e] text-[#132c24]" : "bg-white/8 text-white/80 hover:bg-white/15"
+              }`}
+            >
+              {s.shortName}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <p className="text-[18px] sm:text-[20px] font-extrabold leading-snug mt-5">{svc.name}</p>
+      <p className="text-[13px] text-white/60">Green Valley Society · one vendor, one Sunday</p>
+
+      <div className="flex items-end gap-x-3 gap-y-1 flex-wrap mt-5">
+        <span className="tnum text-[48px] sm:text-[60px] leading-none font-extrabold tracking-tight text-[#dce99e]">
+          {rupees(price)}
+        </span>
+        <span className="text-white/60 text-[14px] pb-2">per {svc.unitLabel}</span>
+        {saving > 0 && <span className="tnum text-white/65 line-through pb-2 text-[14px]">{rupees(svc.listPricePaise)}</span>}
+      </div>
+      <p className="text-[13px] font-semibold text-white/80 min-h-10 sm:min-h-5 mt-2">
         {saving > 0
-          ? `Everyone saves ${rupees(saving)} — including the first flat that joined`
+          ? `Everyone saves ${rupees(saving)} — including the first flat that joined.`
           : next
-            ? `Solo price until ${next.minFlats} join — ${next.away} to go`
-            : "Solo price"}
+            ? `Solo price until ${next.minFlats} ${svc.basisLabel} join.`
+            : "Solo price."}
+      </p>
+      {/* Announce only when the price changes, not on every step of the slider. */}
+      <p className="sr-only" aria-live="polite">
+        {`${svc.name}: ${rupees(price)} per ${svc.unitLabel}.`}
       </p>
 
-      <label htmlFor="demo-count" className="flex items-baseline justify-between mt-5 mb-2">
-        <span className="tnum text-[22px] font-extrabold">
-          {count} <span className="text-sm font-semibold text-ink-500">{basisLabel} joined</span>
-        </span>
-        <span className="text-[12px] text-ink-500">
+      {/* The tower: one window per joiner. */}
+      <div aria-hidden="true" className="grid grid-cols-10 gap-1 sm:gap-1.5 mt-5">
+        {Array.from({ length: max }, (_, i) => (
+          <span key={i} className="mk-window" data-lit={i < count} data-mark={marks.has(i + 1) && i >= count} />
+        ))}
+      </div>
+
+      <div className="flex items-baseline justify-between gap-3 mt-5 mb-1">
+        <label htmlFor={sliderId} className="tnum text-[22px] font-extrabold">
+          {count} <span className="text-[14px] font-semibold text-white/60">{svc.basisLabel} joined</span>
+        </label>
+        <span id={hintId} className="text-[12px] text-white/60 text-right">
           {next ? `${next.away} more → ${rupees(next.pricePaise)}` : "Best price unlocked"}
         </span>
-      </label>
+      </div>
       <input
-        id="demo-count"
+        id={sliderId}
         type="range"
         min={1}
         max={max}
         value={count}
+        aria-describedby={hintId}
+        aria-valuetext={`${count} ${svc.basisLabel} joined, ${rupees(price)} each`}
+        style={{ ["--pct" as string]: `${pct}%` }}
         onChange={(e) => {
           setPlaying(false);
           setCount(Number(e.target.value));
         }}
-        className="w-full accent-[var(--color-save-600)]"
+        className="mk-range"
       />
 
-      <ul className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mt-4">
+      <ol className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mt-4" aria-label={`${svc.shortName} price ladder`}>
         {rows.map((s) => {
           const active = s.pricePaise === price;
           const unlocked = count >= s.minFlats;
           return (
             <li
               key={s.minFlats}
-              className={`rounded-xl px-3 py-2 text-[13px] ${
-                active ? "bg-save-50 ring-1 ring-save-500/40 text-save-700 font-bold" : unlocked ? "bg-canvas-alt text-ink-700" : "bg-canvas-alt text-ink-300"
+              aria-current={active ? "step" : undefined}
+              className={`rounded-xl px-3 py-2 text-[13px] transition-colors ${
+                active
+                  ? "bg-[#dce99e] text-[#132c24]"
+                  : unlocked
+                    ? "bg-white/10 text-white/80"
+                    : "bg-white/[0.04] text-white/65"
               }`}
             >
-              <span className="block tnum">{s.minFlats === 1 ? "Solo" : `${s.minFlats}+ ${basisLabel}`}</span>
-              <span className="block tnum font-bold">{rupees(s.pricePaise)}</span>
+              <span className="block tnum">{s.minFlats === 1 ? "Solo" : `${s.minFlats}+ ${svc.basisLabel}`}</span>
+              <span className="block tnum font-extrabold text-[15px]">{rupees(s.pricePaise)}</span>
             </li>
           );
         })}
-      </ul>
+      </ol>
 
       <div className="flex gap-2 mt-5">
         <button
           type="button"
           onClick={() => {
-            if (count >= target) setCount(4);
+            if (count >= target) setCount(START);
             setPlaying(true);
           }}
-          className="btn btn-save flex-1"
+          className="btn mk-btn-lime flex-1 px-3 text-[14px] sm:text-[15px] whitespace-nowrap"
           disabled={playing}
         >
           {playing ? "Neighbours joining…" : "Watch neighbours join"}
         </button>
-        <button type="button" onClick={() => { setPlaying(false); setCount(4); }} className="btn btn-quiet">
+        <button
+          type="button"
+          onClick={() => {
+            setPlaying(false);
+            setCount(START);
+          }}
+          className="btn mk-btn-ghost-light px-4"
+        >
           Reset
         </button>
       </div>
-      <p className="text-[11px] text-ink-500 text-center mt-3">
+      <p className="text-[12px] text-white/50 text-center mt-3">
         Real ladder from our catalogue. ₹0 is charged until the group locks.
       </p>
     </div>
@@ -216,7 +310,10 @@ function Field({
 }) {
   return (
     <label className="flex flex-col gap-1.5 min-w-0">
-      <span className="text-[13px] font-bold">{label}</span>
+      <span className="text-[13px] font-bold">
+        {label}
+        {!required && <span className="font-semibold text-ink-500"> (optional)</span>}
+      </span>
       <input
         name={name}
         type={type}
@@ -224,7 +321,7 @@ function Field({
         inputMode={inputMode}
         autoComplete={autoComplete}
         required={required}
-        className="card px-3 py-2.5 w-full min-w-0"
+        className="card mk-input px-3 py-2.5 w-full min-w-0"
       />
     </label>
   );
@@ -233,14 +330,15 @@ function Field({
 function Result({ state }: { state: ActionState }) {
   if (state.ok) {
     return (
-      <p role="status" className="card p-3 bg-save-50 border-save-500/30 text-sm font-bold text-save-700">
+      <p role="status" className="card p-4 bg-save-50 border-save-500/30 text-sm font-bold text-save-700 flex gap-2">
+        <span aria-hidden="true">✓</span>
         {state.ok}
       </p>
     );
   }
   if (state.error) {
     return (
-      <p role="alert" className="text-sm text-danger-600">
+      <p role="alert" className="text-sm font-semibold text-danger-600">
         {state.error}
       </p>
     );
@@ -261,14 +359,14 @@ export function SocietyLeadForm() {
         <Field label="Number of flats" name="flats" inputMode="numeric" placeholder="approx." required={false} />
         <label className="flex flex-col gap-1.5 min-w-0">
           <span className="text-[13px] font-bold">You are</span>
-          <select name="role" defaultValue="resident" className="card px-3 py-2.5 w-full min-w-0">
+          <select name="role" defaultValue="resident" className="card mk-input px-3 py-2.5 w-full min-w-0">
             <option value="resident">A resident</option>
             <option value="secretary">Secretary / committee member</option>
             <option value="facility">Facility manager</option>
           </select>
         </label>
       </div>
-      <button className="btn btn-primary w-full sm:w-auto sm:self-start" disabled={pending}>
+      <button className="btn btn-primary w-full sm:w-auto sm:self-start mt-1" disabled={pending}>
         {pending ? "Sending…" : "Request JODO for my society"}
       </button>
       <Result state={state} />
@@ -295,7 +393,10 @@ export function VendorLeadForm() {
         <legend className="text-[13px] font-bold mb-2">Services you offer</legend>
         <div className="flex flex-wrap gap-2">
           {SERVICES.map((s) => (
-            <label key={s} className="pill bg-canvas-alt text-ink-700 cursor-pointer has-[:checked]:bg-brand-600 has-[:checked]:text-white">
+            <label
+              key={s}
+              className="pill cursor-pointer select-none bg-canvas-alt text-ink-700 border border-line py-2 px-3 text-[13px] hover:border-ink-300 has-[:checked]:bg-brand-600 has-[:checked]:border-brand-600 has-[:checked]:text-white has-[:focus-visible]:outline has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand-600"
+            >
               <input type="checkbox" name="services" value={s} className="sr-only" />
               {s}
             </label>

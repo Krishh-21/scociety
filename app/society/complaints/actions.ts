@@ -21,7 +21,7 @@ function errorState(error: unknown): ComplaintFormState {
 
 export async function reportComplaintAction(_: ComplaintFormState, form: FormData): Promise<ComplaintFormState> {
   try {
-    createComplaint(await getMe(), String(form.get("category") ?? ""), String(form.get("title") ?? ""), String(form.get("detail") ?? ""));
+    await createComplaint(await getMe(), String(form.get("category") ?? ""), String(form.get("title") ?? ""), String(form.get("detail") ?? ""));
     refreshComplaints();
     return { ok: "Complaint sent to your committee." };
   } catch (error) {
@@ -31,7 +31,7 @@ export async function reportComplaintAction(_: ComplaintFormState, form: FormDat
 
 export async function updateComplaintAction(_: ComplaintFormState, form: FormData): Promise<ComplaintFormState> {
   try {
-    updateComplaint(
+    await updateComplaint(
       await getMe(), String(form.get("complaintId") ?? ""), String(form.get("status") ?? ""),
       String(form.get("assignee") ?? ""), String(form.get("note") ?? ""),
     );

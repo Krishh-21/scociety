@@ -15,5 +15,5 @@ export default async function OnboardingPage({
   if (me.user.role === "ops") redirect("/ops");
   if (me.user.role === "guard") redirect("/society/visitors");
   if (me.residency) redirect(next ?? "/");
-  return <OnboardingForm societies={societies()} name={me.user.name} next={next} />;
+  return <OnboardingForm societies={await societies()} name={me.user.name} next={next} />;
 }

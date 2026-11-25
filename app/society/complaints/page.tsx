@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { AppHeader, Phone } from "@/components/ui";
+import { AppHeader, Phone, TabBar } from "@/components/ui";
 import { formatDate } from "@/lib/pricing";
 import { getMe } from "@/lib/session";
 import { COMPLAINT_CATEGORIES, COMPLAINT_STATUS, listComplaints } from "@/lib/society-complaints";
@@ -16,7 +16,7 @@ export default async function ComplaintsPage() {
   if (me.residency.status !== "verified") notFound();
 
   const committee = me.user.role === "secretary";
-  const tickets = listComplaints(me);
+  const tickets = await listComplaints(me);
   return (
     <Phone>
       <AppHeader title="Complaints" subtitle={me.residency.societyName} back={{ href: "/society" }} />
@@ -62,6 +62,7 @@ export default async function ComplaintsPage() {
           ))}
         </section>
       </div>
+      <TabBar active="society" mobile={false} />
     </Phone>
   );
 }

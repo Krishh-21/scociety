@@ -15,9 +15,17 @@ const STEPS: [string, string][] = [
   ["Paid T+1", "Settlement the next working day, minus commission. Disputes are held only for the job in question, never the whole day."],
 ];
 
+const NEEDS = [
+  "GST registration (or PAN for smaller businesses) and a bank account in the business name",
+  "Police verification for every technician who enters a flat",
+  "Damage insurance up to ₹50,000 per job — we can point you to a partner if you don't have it",
+  "Three recent jobs we can call for a reference",
+];
+
 export default function PartnersPage() {
   return (
     <MarketingPage
+      wide
       eyebrow="For vendors"
       title="A full day of work in one building, paid the next day."
       intro={
@@ -27,54 +35,68 @@ export default function PartnersPage() {
           earn more for the day.
         </p>
       }
+      aside={
+        <a href="#apply" className="btn btn-primary h-12 px-6 text-[16px] self-start lg:self-end">
+          Apply to be a partner
+        </a>
+      }
     >
-      <div className="grid sm:grid-cols-3 gap-4 mb-12">
+      <dl className="grid sm:grid-cols-3 gap-4">
         {[
           ["12–18%", "commission — less than lead-gen apps, because we hand you a day, not a lead"],
           ["T+1", "payout after the service day, straight to your bank"],
           ["₹0", "to list — no subscription to start"],
-        ].map(([v, l]) => (
-          <div key={v} className="card p-5">
-            <p className="tnum text-[28px] font-extrabold text-brand-700">{v}</p>
-            <p className="text-[14px] text-ink-700 mt-1 leading-snug">{l}</p>
+        ].map(([v, l], i) => (
+          <div key={v} className={`rounded-[20px] p-6 flex flex-col-reverse justify-end ${i === 0 ? "mk-forest" : "card"}`}>
+            <dt className={`text-[14px] leading-snug mt-2 ${i === 0 ? "text-white/75" : "text-ink-700"}`}>{l}</dt>
+            <dd className={`tnum text-[40px] font-extrabold tracking-tight leading-none ${i === 0 ? "text-[#dce99e]" : "text-brand-700"}`}>
+              {v}
+            </dd>
           </div>
         ))}
-      </div>
+      </dl>
 
-      <h2 className="text-[24px] font-extrabold mb-4">How it works</h2>
-      <ol className="flex flex-col gap-3 mb-12">
-        {STEPS.map(([t, b], i) => (
-          <li key={t} className="card p-5 flex gap-4">
-            <span className="w-9 h-9 shrink-0 rounded-full bg-brand-600 text-white grid place-items-center font-extrabold tnum">
-              {i + 1}
-            </span>
-            <div>
-              <h3 className="font-extrabold text-[16px]">{t}</h3>
-              <p className="text-[14px] text-ink-700 leading-relaxed mt-1">{b}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
+      <section aria-labelledby="partner-how" className="mt-16 sm:mt-20">
+        <p className="eyebrow mb-3 !text-brand-700">How it works</p>
+        <h2 id="partner-how" className="mk-h2 !text-[28px] sm:!text-[36px] max-w-2xl">
+          You set the ladder once. We fill the day.
+        </h2>
+        <ol className="grid sm:grid-cols-2 lg:grid-cols-4 gap-px bg-line mt-8 rounded-[20px] overflow-hidden border border-line">
+          {STEPS.map(([t, b], i) => (
+            <li key={t} className="bg-surface p-6">
+              <span className="tnum text-[13px] font-extrabold text-brand-700">0{i + 1}</span>
+              <h3 className="font-extrabold text-[18px] tracking-tight mt-3">{t}</h3>
+              <p className="text-[14px] text-ink-700 leading-relaxed mt-2">{b}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
 
-      <h2 className="text-[24px] font-extrabold mb-3">What we need from you</h2>
-      <ul className="card p-5 flex flex-col gap-2 text-[15px] text-ink-700 mb-12">
-        {[
-          "GST registration (or PAN for smaller businesses) and a bank account in the business name",
-          "Police verification for every technician who enters a flat",
-          "Damage insurance up to ₹50,000 per job — we can point you to a partner if you don't have it",
-          "Three recent jobs we can call for a reference",
-        ].map((x) => (
-          <li key={x} className="flex gap-3">
-            <span aria-hidden="true" className="text-save-600 font-bold">✓</span>
-            {x}
-          </li>
-        ))}
-      </ul>
+      <div className="mt-16 sm:mt-20 grid lg:grid-cols-[1fr_1.35fr] gap-10 lg:gap-16 items-start [&>*]:min-w-0">
+        <section aria-labelledby="partner-needs" className="lg:sticky lg:top-24">
+          <p className="eyebrow mb-3 !text-brand-700">Before you apply</p>
+          <h2 id="partner-needs" className="mk-h2 !text-[28px] sm:!text-[36px]">
+            What we need from you
+          </h2>
+          <ul className="mt-6 border-t border-line">
+            {NEEDS.map((x) => (
+              <li key={x} className="flex gap-3 py-4 border-b border-line text-[15px] text-ink-700 leading-relaxed">
+                <span aria-hidden="true" className="mt-0.5 w-5 h-5 shrink-0 rounded-full bg-brand-600 text-white grid place-items-center text-[11px] font-extrabold">
+                  ✓
+                </span>
+                {x}
+              </li>
+            ))}
+          </ul>
+        </section>
 
-      <div id="apply" className="card p-6 sm:p-8 scroll-mt-20">
-        <h2 className="text-[24px] font-extrabold mb-1">Apply to be a partner</h2>
-        <p className="text-[14px] text-ink-500 mb-5">Our supply team calls every applicant within two working days.</p>
-        <VendorLeadForm />
+        <section id="apply" aria-labelledby="apply-title" className="card p-6 sm:p-8 scroll-mt-24 shadow-xl shadow-black/5">
+          <h2 id="apply-title" className="text-[26px] font-extrabold tracking-tight mb-1">
+            Apply to be a partner
+          </h2>
+          <p className="text-[14px] text-ink-500 mb-6">Our supply team calls every applicant within two working days.</p>
+          <VendorLeadForm />
+        </section>
       </div>
     </MarketingPage>
   );

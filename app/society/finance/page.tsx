@@ -17,10 +17,12 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   const view = canManage && filters.view !== "mine" ? "society" : "mine";
   const outstanding = filters.status === "outstanding";
   const month = typeof filters.month === "string" && isFinanceMonth(filters.month) ? filters.month : undefined;
-  const allBills = listFinanceBills(me, view);
+  const [allBills, societyTotals] = await Promise.all([
+    listFinanceBills(me, view),
+    financeSummary(residency.societyId),
+  ]);
   const months = [...new Set(allBills.map((bill) => bill.month))];
   const bills = allBills.filter((bill) => (!month || bill.month === month) && (!outstanding || !bill.paidOn));
-  const societyTotals = financeSummary(residency.societyId);
   const today = financeToday();
   const myOutstanding = allBills.reduce((sum, bill) => sum + (bill.paidOn ? 0 : bill.totalPaise), 0);
 

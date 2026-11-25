@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AppHeader, Phone } from "@/components/ui";
+import { AppHeader, Phone, TabBar } from "@/components/ui";
 import { financeBill, financeDateLabel, financeMoney, financeMonthLabel, financeToday } from "@/lib/society-finance";
 import { RecordDuesForm, RemindDuesForm } from "../FinanceForms";
 import { BillStatus, FINANCE_HOME, financePageActor } from "../finance-ui";
@@ -11,7 +11,7 @@ export default async function BillPage({ params, searchParams }: {
   params: Promise<{ billId: string }>; searchParams: Promise<{ view?: string }>;
 }) {
   const [{ billId }, { view }, { me, residency, canManage }] = await Promise.all([params, searchParams, financePageActor()]);
-  const bill = financeBill(me, billId);
+  const bill = await financeBill(me, billId);
   if (!bill) notFound();
   const today = financeToday();
 
@@ -66,6 +66,7 @@ export default async function BillPage({ params, searchParams }: {
           <p className="card p-4 text-sm text-ink-700">Contact your society committee for payment instructions. Your receipt will appear once the committee records payment.</p>
         ))}
       </main>
+      <TabBar active="society" mobile={false} />
     </Phone>
   );
 }

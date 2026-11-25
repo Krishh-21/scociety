@@ -14,7 +14,7 @@ export type FinanceActionState = { error?: string; ok?: string };
 const get = (form: FormData, name: string) => String(form.get(name) ?? "");
 const countFlats = (count: number) => `${count} flat${count === 1 ? "" : "s"}`;
 
-async function financeAction(work: (me: Me | null) => string | Promise<string>): Promise<FinanceActionState> {
+async function financeAction(work: (me: Me | null) => Promise<string>): Promise<FinanceActionState> {
   try {
     const ok = await work(await getMe());
     revalidatePath("/society");
@@ -28,11 +28,11 @@ async function financeAction(work: (me: Me | null) => string | Promise<string>):
 }
 
 export async function issueDuesAction(_state: FinanceActionState, form: FormData) {
-  return financeAction((me) => {
+  return financeAction(async (me) => {
     const labels = form.getAll("label");
     const amounts = form.getAll("rupees");
     if (labels.length !== amounts.length) throw new FinanceError("Enter an amount for each charge.");
-    const { issued, existing } = issueMonthlyDues(me, {
+    const { issued, existing } = await issueMonthlyDues(me, {
       month: get(form, "month"), dueOn: get(form, "dueOn"),
       items: labels.map((label, i) => ({ label: String(label), rupees: String(amounts[i]) })),
     });
@@ -42,8 +42,8 @@ export async function issueDuesAction(_state: FinanceActionState, form: FormData
 }
 
 export async function recordDuesAction(_state: FinanceActionState, form: FormData) {
-  return financeAction((me) => {
-    recordDuesPayment(me, {
+  return financeAction(async (me) => {
+    await recordDuesPayment(me, {
       billId: get(form, "billId"), method: get(form, "method"),
       reference: get(form, "reference"), paidOn: get(form, "paidOn"),
     });
@@ -52,8 +52,8 @@ export async function recordDuesAction(_state: FinanceActionState, form: FormDat
 }
 
 export async function remindDuesAction(_state: FinanceActionState, form: FormData) {
-  return financeAction((me) => {
-    const reminded = remindOutstandingDues(me, get(form, "billId") || undefined);
+  return financeAction(async (me) => {
+    const reminded = await remindOutstandingDues(me, get(form, "billId") || undefined);
     revalidatePath("/notifications");
     return reminded ? `Sent in-app reminders for ${countFlats(reminded)}.` : "No new reminders to send today.";
   });
@@ -67,7 +67,7 @@ export async function addExpenseAction(_state: FinanceActionState, form: FormDat
     const file = photo && typeof photo !== "string" && photo.size ? photo : null;
     if (file && file.size > MAX_EXPENSE_RECEIPT_BYTES) throw new FinanceError("Choose a receipt photo of up to 750 KB.");
     const receipt = file ? { contentType: file.type, bytes: new Uint8Array(await file.arrayBuffer()) } : undefined;
-    addFinanceExpense(me, {
+    await addFinanceExpense(me, {
       kind, label: get(form, "label"), category: get(form, "category"), vendor: get(form, "vendor"),
       invoiceReference: get(form, "invoiceReference"), rupees: get(form, "rupees"),
       incurredOn: get(form, "incurredOn"), dueOn: get(form, "dueOn"), paymentReference: get(form, "paymentReference"),
@@ -78,8 +78,8 @@ export async function addExpenseAction(_state: FinanceActionState, form: FormDat
 }
 
 export async function settleExpenseAction(_state: FinanceActionState, form: FormData) {
-  return financeAction((me) => {
-    settleFinanceExpense(me, {
+  return financeAction(async (me) => {
+    await settleFinanceExpense(me, {
       expenseId: get(form, "expenseId"), paidOn: get(form, "paidOn"), paymentReference: get(form, "paymentReference"),
     });
     return "Vendor payment recorded.";
@@ -87,8 +87,8 @@ export async function settleExpenseAction(_state: FinanceActionState, form: Form
 }
 
 export async function reportBalanceAction(_state: FinanceActionState, form: FormData) {
-  return financeAction((me) => {
-    reportBankBalance(me, { rupees: get(form, "rupees"), reportedOn: get(form, "reportedOn") });
+  return financeAction(async (me) => {
+    await reportBankBalance(me, { rupees: get(form, "rupees"), reportedOn: get(form, "reportedOn") });
     return "Bank balance report saved.";
   });
 }

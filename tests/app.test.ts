@@ -49,137 +49,137 @@ describe("claiming a flat", () => {
     expect(normaliseFlat("tower A")).toBeNull();
   });
 
-  it("refuses a flat a verified neighbour already holds", () => {
-    const u = findOrCreateUser("9876500001");
-    expect(() =>
-      claimResidency({ userId: u.id, name: "Someone Else", societyId: GREEN, flat: "a-402", type: "owner" }),
-    ).toThrow(/already verified/);
+  it("refuses a flat a verified neighbour already holds", async () => {
+    const u = (await findOrCreateUser("9876500001"));
+    await expect((async () =>
+      (await claimResidency({ userId: u.id, name: "Someone Else", societyId: GREEN, flat: "a-402", type: "owner" })))(),
+    ).rejects.toThrow(/already verified/);
   });
 
-  it("refuses a society that doesn't exist", () => {
-    const u = findOrCreateUser("9876500002");
-    expect(() =>
-      claimResidency({ userId: u.id, name: "Asha Rao", societyId: "soc_nowhere", flat: "C-909", type: "owner" }),
-    ).toThrow(ResidencyError);
+  it("refuses a society that doesn't exist", async () => {
+    const u = (await findOrCreateUser("9876500002"));
+    await expect((async () =>
+      (await claimResidency({ userId: u.id, name: "Asha Rao", societyId: "soc_nowhere", flat: "C-909", type: "owner" })))(),
+    ).rejects.toThrow(ResidencyError);
   });
 
-  it("puts a new neighbour in a free flat, verified, with a tidy flat number", () => {
-    const u = findOrCreateUser("9876500003");
-    const res = claimResidency({ userId: u.id, name: "  Asha   Rao ", societyId: GREEN, flat: "c909", type: "tenant" });
+  it("puts a new neighbour in a free flat, verified, with a tidy flat number", async () => {
+    const u = (await findOrCreateUser("9876500003"));
+    const res = (await claimResidency({ userId: u.id, name: "  Asha   Rao ", societyId: GREEN, flat: "c909", type: "tenant" }));
     expect(res.flat).toBe("C-909");
-    const row = one<{ flat: string; status: string; type: string }>(
+    const row = (await one<{ flat: string; status: string; type: string }>(
       "SELECT flat, status, type FROM residency WHERE userId = ?", u.id,
-    )!;
+    ))!;
     expect(row).toMatchObject({ flat: "C-909", status: "verified", type: "tenant" });
-    expect(one<{ name: string }>("SELECT name FROM user WHERE id = ?", u.id)!.name).toBe("Asha Rao");
+    expect((await one<{ name: string }>("SELECT name FROM user WHERE id = ?", u.id))!.name).toBe("Asha Rao");
   });
 
-  it("lets the same person re-claim their own flat", () => {
-    const u = findOrCreateUser("9876500003");
-    const original = one<{ id: string }>("SELECT id FROM residency WHERE userId = ?", u.id);
-    expect(() =>
-      claimResidency({ userId: u.id, name: "Asha Rao", societyId: GREEN, flat: "C-909", type: "owner" }),
-    ).not.toThrow();
-    expect(one("SELECT id FROM residency WHERE userId = ?", u.id)).toEqual(original);
+  it("lets the same person re-claim their own flat", async () => {
+    const u = (await findOrCreateUser("9876500003"));
+    const original = (await one<{ id: string }>("SELECT id FROM residency WHERE userId = ?", u.id));
+    await expect((async () =>
+      (await claimResidency({ userId: u.id, name: "Asha Rao", societyId: GREEN, flat: "C-909", type: "owner" })))(),
+    ).resolves.not.toBeNull();
+    expect((await one("SELECT id FROM residency WHERE userId = ?", u.id))).toEqual(original);
   });
 
-  it("prevents a verified secretary from transferring committee access through onboarding", () => {
-    expect(() => claimResidency({
+  it("prevents a verified secretary from transferring committee access through onboarding", async () => {
+    await expect((async () => (await claimResidency({
       userId: "usr_kulkarni", name: "Amit Kulkarni", societyId: "soc_palm_grove", flat: "Z-902", type: "owner",
-    })).toThrow(/already verified/i);
-    expect(one("SELECT societyId FROM residency WHERE userId = 'usr_kulkarni'")).toEqual({ societyId: GREEN });
+    })))()).rejects.toThrow(/already verified/i);
+    expect((await one("SELECT societyId FROM residency WHERE userId = 'usr_kulkarni'"))).toEqual({ societyId: GREEN });
   });
 });
 
 describe("vendors per service", () => {
-  it("only offers vendors who do the service", () => {
-    const ac = vendorsForSku("sku_ac_service").map((v) => v.id);
+  it("only offers vendors who do the service", async () => {
+    const ac = (await vendorsForSku("sku_ac_service")).map((v) => v.id);
     expect(ac).toContain("ven_coolcare");
     expect(ac).toContain("ven_frostline");
     expect(ac).not.toContain("ven_greenshield");
-    expect(vendorsForSku("sku_car_wash").map((v) => v.id)).toEqual(["ven_shinewash"]);
+    expect((await vendorsForSku("sku_car_wash")).map((v) => v.id)).toEqual(["ven_shinewash"]);
   });
 
-  it("refuses to give a car-wash group to the AC vendor", () => {
-    expect(() =>
-      createDeal({
+  it("refuses to give a car-wash group to the AC vendor", async () => {
+    await expect((async () =>
+      (await createDeal({
         societyId: GREEN, skuId: "sku_car_wash", vendorId: "ven_coolcare", createdBy: "usr_rahul",
         serviceDate: inDays(6), targetFlats: 20, deadlineHours: 48,
-      }),
-    ).toThrow(/doesn't offer/);
+      })))(),
+    ).rejects.toThrow(/doesn't offer/);
   });
 
-  it("accepts the right vendor", () => {
-    const id = createDeal({
+  it("accepts the right vendor", async () => {
+    const id = (await createDeal({
       societyId: GREEN, skuId: "sku_ac_service", vendorId: "ven_frostline", createdBy: "usr_rahul",
       serviceDate: inDays(6), targetFlats: 20, deadlineHours: 48,
-    });
-    expect(getDealView(id)!.vendor.id).toBe("ven_frostline");
+    }));
+    expect((await getDealView(id))!.vendor.id).toBe("ven_frostline");
   });
 
-  it("refuses an unknown vendor", () => {
-    expect(() =>
-      createDeal({
+  it("refuses an unknown vendor", async () => {
+    await expect((async () =>
+      (await createDeal({
         societyId: GREEN, skuId: "sku_ac_service", vendorId: "ven_nobody", createdBy: "usr_rahul",
         serviceDate: inDays(6), targetFlats: 20, deadlineHours: 48,
-      }),
-    ).toThrow(DealError);
+      })))(),
+    ).rejects.toThrow(DealError);
   });
 });
 
 describe("the feed never shows a closed group as open", () => {
-  it("closes a group past its deadline before rendering it", () => {
-    const id = createDeal({
+  it("closes a group past its deadline before rendering it", async () => {
+    const id = (await createDeal({
       societyId: GREEN, skuId: "sku_pest", vendorId: "ven_greenshield", createdBy: "usr_rahul",
       serviceDate: inDays(6), targetFlats: 10, deadlineHours: 48,
-    });
-    run("UPDATE deal SET joinDeadline = ? WHERE id = ?", inDays(-1), id);
+    }));
+    (await run("UPDATE deal SET joinDeadline = ? WHERE id = ?", inDays(-1), id));
 
-    const { live, past } = feed(GREEN);
+    const { live, past } = (await feed(GREEN));
     expect(live.some((d) => d.id === id)).toBe(false);
     expect(past.find((d) => d.id === id)?.status).toBe("expired");
   });
 });
 
 describe("website sign-ups", () => {
-  it("records a society request", () => {
-    const res = createLead({
+  it("records a society request", async () => {
+    const res = (await createLead({
       kind: "society", name: "Meera Iyer", phone: "98765 43210", org: "Palm Grove Residency", city: "Pune",
       detail: { role: "secretary", flats: 164 },
-    });
+    }));
     expect(res.duplicate).toBe(false);
-    const lead = listLeads().find((l) => l.id === res.id)!;
+    const lead = (await listLeads()).find((l) => l.id === res.id)!;
     expect(lead).toMatchObject({ kind: "society", phone: "9876543210", org: "Palm Grove Residency", status: "new" });
     expect(lead.detail).toMatchObject({ role: "secretary", flats: 164 });
   });
 
-  it("doesn't create a second lead for the same phone the same day", () => {
-    const again = createLead({ kind: "society", name: "Meera Iyer", phone: "9876543210", org: "Palm Grove", city: "Pune" });
+  it("doesn't create a second lead for the same phone the same day", async () => {
+    const again = (await createLead({ kind: "society", name: "Meera Iyer", phone: "9876543210", org: "Palm Grove", city: "Pune" }));
     expect(again.duplicate).toBe(true);
-    expect(listLeads().filter((l) => l.phone === "9876543210" && l.kind === "society")).toHaveLength(1);
+    expect((await listLeads()).filter((l) => l.phone === "9876543210" && l.kind === "society")).toHaveLength(1);
   });
 
-  it("validates what it stores", () => {
-    expect(() => createLead({ kind: "vendor", name: "R", phone: "9876543211", org: "Crew", city: "Pune" })).toThrow(LeadError);
-    expect(() => createLead({ kind: "vendor", name: "Ravi", phone: "123", org: "Crew", city: "Pune" })).toThrow(/10-digit/);
-    expect(() => createLead({ kind: "vendor", name: "Ravi", phone: "9876543211", org: "", city: "Pune" })).toThrow(/business/);
+  it("validates what it stores", async () => {
+    await expect((async () => (await createLead({ kind: "vendor", name: "R", phone: "9876543211", org: "Crew", city: "Pune" })))()).rejects.toThrow(LeadError);
+    await expect((async () => (await createLead({ kind: "vendor", name: "Ravi", phone: "123", org: "Crew", city: "Pune" })))()).rejects.toThrow(/10-digit/);
+    await expect((async () => (await createLead({ kind: "vendor", name: "Ravi", phone: "9876543211", org: "", city: "Pune" })))()).rejects.toThrow(/business/);
   });
 
-  it("publishes only numbers that come from the database", () => {
-    const s = publicStats();
-    expect(s.societies).toBe(one<{ n: number }>("SELECT COUNT(*) AS n FROM society")!.n);
+  it("publishes only numbers that come from the database", async () => {
+    const s = (await publicStats());
+    expect(s.societies).toBe((await one<{ n: number }>("SELECT COUNT(*) AS n FROM society"))!.n);
     expect(s.confirmed).toBeGreaterThan(0);
     expect(s.savedPaise).toBeGreaterThan(0);
   });
 });
 
 describe("demo reset", () => {
-  it("puts the seed back and keeps website leads", () => {
-    const leadsBefore = listLeads().length;
-    run("DELETE FROM deal WHERE id = 'deal_ac_sunday'");
+  it("puts the seed back and keeps website leads", async () => {
+    const leadsBefore = (await listLeads()).length;
+    (await run("DELETE FROM deal WHERE id = 'deal_ac_sunday'"));
     resetAllData();
-    expect(getDealView("deal_ac_sunday")!.status).toBe("open");
-    expect(all("SELECT id FROM deal")).toHaveLength(5);
-    expect(listLeads().length).toBe(leadsBefore);
+    expect((await getDealView("deal_ac_sunday"))!.status).toBe("open");
+    expect((await all("SELECT id FROM deal"))).toHaveLength(5);
+    expect((await listLeads()).length).toBe(leadsBefore);
   });
 });

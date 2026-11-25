@@ -11,9 +11,9 @@ export async function changeGuardAccess(_: GuardFormState, form: FormData): Prom
     const me = await getMe();
     const mode = form.get("mode");
     if (mode === "add") {
-      registerGuard(me, String(form.get("phone") ?? ""), String(form.get("name") ?? ""));
+      await registerGuard(me, String(form.get("phone") ?? ""), String(form.get("name") ?? ""));
     } else if (mode === "enable" || mode === "disable") {
-      setGuardActive(me, String(form.get("guardId") ?? ""), mode === "enable");
+      await setGuardActive(me, String(form.get("guardId") ?? ""), mode === "enable");
     } else {
       return { error: "Choose a guard access action." };
     }

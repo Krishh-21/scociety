@@ -12,7 +12,7 @@ import {
 } from "@/components/forms";
 import { listLeads } from "@/lib/leads";
 import { timeAgo } from "@/lib/pricing";
-import { StatusPill } from "@/components/ui";
+import { ConsoleHeader, StatTile, StatusPill } from "@/components/ui";
 import { signOut } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
@@ -27,17 +27,15 @@ const revisitStatusLabels = {
 export default async function OpsPage() {
   const me = await getMe();
   if (!me) redirect("/login");
-  if (!can(me, { kind: "console.ops" })) {
+  if (!(await can(me, { kind: "console.ops" }))) {
     return <ConsoleGate console="ops" phone="9000000099" you={me.user.name} />;
   }
-  const { deals, atRisk, pending, gmvPaise, commissionPaise, refundsPaise, fillRate } = opsBoard();
-  const disputes = openDisputes();
+  const { deals, atRisk, pending, gmvPaise, commissionPaise, refundsPaise, fillRate } = await opsBoard();
+  const [disputes, allRevisits, f, events, leads, demo] = await Promise.all([
+    openDisputes(), revisitsForOps(), funnel(), recentEvents(15), listLeads(30), can(me, { kind: "demo.reset" }),
+  ]);
   const openIssues = disputes.filter((d) => d.status === "open");
-  const revisits = revisitsForOps().filter((visit) => visit.status !== "completed");
-  const f = funnel();
-  const events = recentEvents(15);
-  const leads = listLeads(30);
-  const demo = can(me, { kind: "demo.reset" });
+  const revisits = allRevisits.filter((visit) => visit.status !== "completed");
   const open = deals.filter((d) => d.status === "open");
   const medianFlats = (() => {
     const closed = deals.filter((d) => ["locked", "in_progress", "completed"].includes(d.status));
@@ -48,25 +46,25 @@ export default async function OpsPage() {
 
   return (
     <main className="min-h-screen bg-canvas">
-      <header className="bg-surface border-b border-line px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="eyebrow">JODO ops console</p>
-          <h1 className="text-[22px] font-extrabold">Deals board</h1>
-        </div>
-        <div className="flex flex-wrap gap-2 items-center">
-          <Link href="/" className="btn btn-quiet h-10 min-h-10 text-[13px]">
-            Resident app
-          </Link>
-          <Link href="/vendor" className="btn btn-quiet h-10 min-h-10 text-[13px]">
-            Vendor console
-          </Link>
-          <form action={signOut}>
-            <button className="btn btn-quiet h-10 min-h-10 text-[13px]">Sign out</button>
-          </form>
-        </div>
-      </header>
+      <ConsoleHeader
+        eyebrow="JODO ops console"
+        title="Deals board"
+        actions={
+          <>
+            <Link href="/" className="btn jd-btn-ghost-light min-h-10 text-[13px]">
+              Resident app
+            </Link>
+            <Link href="/vendor" className="btn jd-btn-ghost-light min-h-10 text-[13px]">
+              Vendor console
+            </Link>
+            <form action={signOut}>
+              <button className="btn jd-btn-ghost-light min-h-10 text-[13px]">Sign out</button>
+            </form>
+          </>
+        }
+      />
 
-      <div className="max-w-[1200px] mx-auto px-6 py-6 flex flex-col gap-6">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
         <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
             ["GMV booked", rupees(gmvPaise)],
@@ -78,10 +76,7 @@ export default async function OpsPage() {
             ["Open issues", String(openIssues.length)],
             ["Deal view → join", `${f.viewToJoinPct}%`],
           ].map(([label, value]) => (
-            <div key={label} className="card p-4">
-              <p className="eyebrow mb-1">{label}</p>
-              <p className="tnum text-[22px] font-extrabold">{value}</p>
-            </div>
+            <StatTile key={label} label={label} value={value} />
           ))}
         </section>
 

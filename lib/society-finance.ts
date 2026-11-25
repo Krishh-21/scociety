@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { all, inTransaction, one, run } from "./db";
+import { all, inTransaction, one, run, usesPostgres } from "./db";
 import { notify } from "./notify";
 import type { Me } from "./session";
 import { requireSocietyCommittee, requireSocietyMember } from "./society-access";
@@ -80,13 +80,13 @@ function parsePaise(rupees: string, positive = true) {
   return paise;
 }
 
-function billItems(billId: string) {
+async function billItems(billId: string) {
   return all<FinanceItem>(
     "SELECT label, amountPaise FROM society_finance_bill_items WHERE billId = ? ORDER BY position", billId,
   );
 }
 
-export function issueMonthlyDues(me: Me | null, input: {
+export async function issueMonthlyDues(me: Me | null, input: {
   month: string; dueOn: string; items: { label: string; rupees: string }[];
 }) {
   const { societyId, userId: issuedBy } = requireSocietyCommittee(me);
@@ -102,16 +102,16 @@ export function issueMonthlyDues(me: Me | null, input: {
   }));
   const totalPaise = charges.reduce((sum, charge) => sum + charge.amountPaise, 0);
 
-  return inTransaction(() => {
-    const existingCycle = one<{ id: string; dueOn: string }>(
+  return inTransaction(async () => {
+    const existingCycle = await one<{ id: string; dueOn: string }>(
       "SELECT id, dueOn FROM society_finance_bills WHERE societyId = ? AND month = ? LIMIT 1", societyId, month,
     );
     if (existingCycle && (existingCycle.dueOn !== dueOn ||
-      JSON.stringify(billItems(existingCycle.id)) !== JSON.stringify(charges))) {
+      JSON.stringify(await billItems(existingCycle.id)) !== JSON.stringify(charges))) {
       throw new FinanceError("Bills were already issued for this month. Use the same due date and charges to bill newly verified flats.");
     }
 
-    const flats = all<{ flat: string }>(
+    const flats = await all<{ flat: string }>(
       "SELECT DISTINCT flat FROM residency WHERE societyId = ? AND status = 'verified' ORDER BY flat", societyId,
     );
     if (!flats.length) throw new FinanceError("There are no verified flats to bill.");
@@ -119,12 +119,12 @@ export function issueMonthlyDues(me: Me | null, input: {
     let issued = 0;
     for (const { flat } of flats) {
       const billId = randomUUID();
-      const result = run(`INSERT INTO society_finance_bills (id, societyId, flat, month, dueOn, totalPaise, issuedBy, issuedAt)
+      const result = await run(`INSERT INTO society_finance_bills (id, societyId, flat, month, dueOn, totalPaise, issuedBy, issuedAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(societyId, flat, month) DO NOTHING`,
       billId, societyId, flat, month, dueOn, totalPaise, issuedBy, issuedAt);
       if (!result.changes) continue;
       for (const [position, charge] of charges.entries()) {
-        run("INSERT INTO society_finance_bill_items (billId, position, label, amountPaise) VALUES (?, ?, ?, ?)",
+        await run("INSERT INTO society_finance_bill_items (billId, position, label, amountPaise) VALUES (?, ?, ?, ?)",
           billId, position, charge.label, charge.amountPaise);
       }
       issued++;
@@ -133,66 +133,72 @@ export function issueMonthlyDues(me: Me | null, input: {
   });
 }
 
-const billFields = `b.id, b.flat, b.month, b.dueOn, b.issuedAt, b.totalPaise, p.paidOn, b.lastReminderOn,
-  CASE WHEN p.id IS NULL THEN max(0, CAST(julianday(?) - julianday(b.dueOn) AS INTEGER)) ELSE 0 END AS daysOverdue`;
+function billFields() {
+  const daysOverdue = usesPostgres()
+    ? "GREATEST(0, CAST(? AS DATE) - CAST(b.dueOn AS DATE))"
+    : "max(0, CAST(julianday(?) - julianday(b.dueOn) AS INTEGER))";
+  return `b.id, b.flat, b.month, b.dueOn, b.issuedAt, b.totalPaise, p.paidOn, b.lastReminderOn,
+    CASE WHEN p.id IS NULL THEN ${daysOverdue} ELSE 0 END AS daysOverdue`;
+}
 const billFrom = "FROM society_finance_bills b LEFT JOIN society_finance_payments p ON p.billId = b.id";
 
-export function listFinanceBills(me: Me | null, view: "mine" | "society", options: {
+export async function listFinanceBills(me: Me | null, view: "mine" | "society", options: {
   month?: string; outstanding?: boolean;
 } = {}) {
   const residency = view === "society" ? requireSocietyCommittee(me) : requireSocietyMember(me);
   const flat = view === "society" ? null : residency.flat;
   const month = options.month ?? null;
-  return all<FinanceBill>(`SELECT ${billFields} ${billFrom}
-    WHERE b.societyId = ? AND (? IS NULL OR b.flat = ?) AND (? IS NULL OR b.month = ?) AND (? = 0 OR p.id IS NULL)
+  return all<FinanceBill>(`SELECT ${billFields()} ${billFrom}
+    WHERE b.societyId = ? AND (CAST(? AS TEXT) IS NULL OR b.flat = ?) AND (CAST(? AS TEXT) IS NULL OR b.month = ?) AND (? = 0 OR p.id IS NULL)
     ORDER BY b.month DESC, b.flat`, financeToday(), residency.societyId, flat, flat, month, month, options.outstanding ? 1 : 0);
 }
 
-export function financeBill(me: Me | null, billId: string) {
+export async function financeBill(me: Me | null, billId: string) {
   const { societyId, flat } = requireSocietyMember(me);
   const permittedFlat = me?.user.role === "secretary" ? null : flat;
-  const bill = one<FinanceBill>(`SELECT ${billFields} ${billFrom}
-    WHERE b.id = ? AND b.societyId = ? AND (? IS NULL OR b.flat = ?)`,
+  const bill = await one<FinanceBill>(`SELECT ${billFields()} ${billFrom}
+    WHERE b.id = ? AND b.societyId = ? AND (CAST(? AS TEXT) IS NULL OR b.flat = ?)`,
   financeToday(), billId, societyId, permittedFlat, permittedFlat);
   if (!bill) return null;
   return {
     ...bill,
-    items: billItems(bill.id),
-    payment: one<FinancePayment>(`SELECT id, amountPaise, method, reference, paidOn
+    items: await billItems(bill.id),
+    payment: await one<FinancePayment>(`SELECT id, amountPaise, method, reference, paidOn
       FROM society_finance_payments WHERE billId = ?`, bill.id),
   };
 }
 
-function committeeBill(societyId: string, billId: string) {
-  const bill = one<FinanceBill>(`SELECT ${billFields} ${billFrom} WHERE b.id = ? AND b.societyId = ?`,
+async function committeeBill(societyId: string, billId: string) {
+  const bill = await one<FinanceBill>(`SELECT ${billFields()} ${billFrom} WHERE b.id = ? AND b.societyId = ?`,
     financeToday(), billId, societyId);
   if (!bill) throw new FinanceError("Bill unavailable.");
   return bill;
 }
 
-export function recordDuesPayment(me: Me | null, input: {
+export async function recordDuesPayment(me: Me | null, input: {
   billId: string; method: string; reference: string; paidOn: string;
 }) {
   const { societyId, userId } = requireSocietyCommittee(me);
   if (!Object.hasOwn(paymentMethods, input.method)) throw new FinanceError("Choose a payment method.");
   const reference = checkText(input.reference, "payment reference", 100);
   const paidOn = checkPastOrToday(input.paidOn, "payment date");
-  return inTransaction(() => {
-    const bill = committeeBill(societyId, input.billId);
+  return inTransaction(async () => {
+    const bill = await committeeBill(societyId, input.billId);
     if (bill.paidOn) throw new FinanceError("This bill is already paid.");
     const paymentId = randomUUID();
-    run(`INSERT INTO society_finance_payments (id, billId, amountPaise, method, reference, paidOn, recordedBy, recordedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, paymentId, bill.id, bill.totalPaise, input.method, reference, paidOn,
+    const result = await run(`INSERT INTO society_finance_payments (id, billId, amountPaise, method, reference, paidOn, recordedBy, recordedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(billId) DO NOTHING`, paymentId, bill.id, bill.totalPaise, input.method, reference, paidOn,
     userId, new Date().toISOString());
+    if (!result.changes) throw new FinanceError("This bill is already paid.");
     return paymentId;
   });
 }
 
-export function remindOutstandingDues(me: Me | null, billId?: string) {
+export async function remindOutstandingDues(me: Me | null, billId?: string) {
   const { societyId, societyName } = requireSocietyCommittee(me);
   const today = financeToday();
-  return inTransaction(() => {
-    const bills = billId ? [committeeBill(societyId, billId)] : listFinanceBills(me, "society", { outstanding: true });
+  return inTransaction(async () => {
+    const bills = billId ? [await committeeBill(societyId, billId)] : await listFinanceBills(me, "society", { outstanding: true });
     const byFlat = new Map<string, FinanceBill[]>();
     for (const bill of bills) {
       if (bill.paidOn || bill.lastReminderOn === today) continue;
@@ -202,7 +208,7 @@ export function remindOutstandingDues(me: Me | null, billId?: string) {
     }
     let reminded = 0;
     for (const [flat, flatBills] of byFlat) {
-      const recipients = all<{ userId: string }>(
+      const recipients = await all<{ userId: string }>(
         "SELECT userId FROM residency WHERE societyId = ? AND flat = ? AND status = 'verified'", societyId, flat,
       );
       if (!recipients.length) continue;
@@ -211,11 +217,11 @@ export function remindOutstandingDues(me: Me | null, billId?: string) {
       const body = flatBills.length === 1
         ? `${financeMoney(bill.totalPaise)} for flat ${flat} at ${societyName} is due ${financeDateLabel(bill.dueOn)}.`
         : `Flat ${flat} at ${societyName} has ${flatBills.length} outstanding maintenance bills totalling ${financeMoney(flatBills.reduce((sum, entry) => sum + entry.totalPaise, 0))}.`;
-      notify(recipients.map((row) => row.userId), {
+      await notify(recipients.map((row) => row.userId), {
         type: "society_dues_reminder", title, body: `${body} Open Society Finance to view your dues.`,
       });
       for (const entry of flatBills) {
-        run("UPDATE society_finance_bills SET lastReminderOn = ? WHERE id = ?", today, entry.id);
+        await run("UPDATE society_finance_bills SET lastReminderOn = ? WHERE id = ?", today, entry.id);
       }
       reminded++;
     }
@@ -223,22 +229,22 @@ export function remindOutstandingDues(me: Me | null, billId?: string) {
   });
 }
 
-export function financeExpenses(me: Me | null, month?: string) {
+export async function financeExpenses(me: Me | null, month?: string) {
   const { societyId } = requireSocietyCommittee(me);
   return all<FinanceExpense>(`SELECT e.id, e.kind, e.label, e.category, e.vendor, e.invoiceReference, e.amountPaise,
-    e.incurredOn, e.dueOn, e.paidOn, e.paymentReference, r.expenseId IS NOT NULL AS hasReceipt
+    e.incurredOn, e.dueOn, e.paidOn, e.paymentReference, CASE WHEN r.expenseId IS NOT NULL THEN 1 ELSE 0 END AS hasReceipt
     FROM society_finance_expenses e LEFT JOIN society_finance_expense_receipts r ON r.expenseId = e.id
-    WHERE e.societyId = ? AND (? IS NULL OR substr(e.incurredOn, 1, 7) = ?)
+    WHERE e.societyId = ? AND (CAST(? AS TEXT) IS NULL OR substr(e.incurredOn, 1, 7) = ?)
     ORDER BY e.incurredOn DESC, e.createdAt DESC`, societyId, month ?? null, month ?? null);
 }
 
-export function financeExpenseReceipt(me: Me | null, expenseId: string) {
+export async function financeExpenseReceipt(me: Me | null, expenseId: string) {
   const { societyId } = requireSocietyCommittee(me);
   return one<FinanceReceipt>(`SELECT r.contentType, r.bytes FROM society_finance_expense_receipts r
     JOIN society_finance_expenses e ON e.id = r.expenseId WHERE e.societyId = ? AND e.id = ?`, societyId, expenseId);
 }
 
-export function addFinanceExpense(me: Me | null, input: {
+export async function addFinanceExpense(me: Me | null, input: {
   kind: string; label: string; category: string; vendor: string; invoiceReference: string;
   rupees: string; incurredOn: string; dueOn: string; paymentReference: string; receipt?: FinanceReceipt;
 }) {
@@ -260,60 +266,61 @@ export function addFinanceExpense(me: Me | null, input: {
   const contentType = receipt && receiptImageType(receipt.contentType, receipt.bytes);
   if (receipt && !contentType) throw new FinanceError("Choose a JPEG or PNG receipt photo of up to 750 KB.");
   const expenseId = randomUUID();
-  return inTransaction(() => {
-    const result = run(`INSERT INTO society_finance_expenses (id, societyId, kind, label, category, vendor,
+  return inTransaction(async () => {
+    const result = await run(`INSERT INTO society_finance_expenses (id, societyId, kind, label, category, vendor,
       invoiceReference, amountPaise, incurredOn, dueOn, paidOn, paymentReference, createdBy, createdAt, paidBy)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`, expenseId, societyId,
     kind, label, category, vendor, invoiceReference, amountPaise, incurredOn, dueOn, paidOn, paymentReference,
     userId, new Date().toISOString(), paidOn ? userId : null);
     if (!result.changes) throw new FinanceError("This invoice or expense is already recorded.");
     if (receipt) {
-      run("INSERT INTO society_finance_expense_receipts (expenseId, contentType, bytes) VALUES (?, ?, ?)",
+      await run("INSERT INTO society_finance_expense_receipts (expenseId, contentType, bytes) VALUES (?, ?, ?)",
         expenseId, contentType, receipt.bytes);
     }
     return expenseId;
   });
 }
 
-export function settleFinanceExpense(me: Me | null, input: {
+export async function settleFinanceExpense(me: Me | null, input: {
   expenseId: string; paidOn: string; paymentReference: string;
 }) {
   const { societyId, userId } = requireSocietyCommittee(me);
   const paidOn = checkPastOrToday(input.paidOn, "payment date");
   const paymentReference = checkText(input.paymentReference, "payment reference", 100);
-  const result = run(`UPDATE society_finance_expenses SET paidOn = ?, paymentReference = ?, paidBy = ?
+  const result = await run(`UPDATE society_finance_expenses SET paidOn = ?, paymentReference = ?, paidBy = ?
     WHERE id = ? AND societyId = ? AND kind = 'vendor_bill' AND paidOn IS NULL AND incurredOn <= ?`,
   paidOn, paymentReference, userId, input.expenseId, societyId, paidOn);
   if (!result.changes) throw new FinanceError("Check that this invoice is unpaid and the payment date is on or after the invoice date.");
 }
 
-export function reportBankBalance(me: Me | null, input: { rupees: string; reportedOn: string }) {
+export async function reportBankBalance(me: Me | null, input: { rupees: string; reportedOn: string }) {
   const { societyId, userId } = requireSocietyCommittee(me);
   const reportedOn = checkPastOrToday(input.reportedOn, "balance date");
   const amount = input.rupees.trim();
   const amountPaise = amount.startsWith("-") ? -parsePaise(amount.slice(1), false) : parsePaise(amount, false);
-  run(`INSERT INTO society_finance_bank_balances (societyId, reportedOn, amountPaise, reportedBy, recordedAt)
+  await run(`INSERT INTO society_finance_bank_balances (societyId, reportedOn, amountPaise, reportedBy, recordedAt)
     VALUES (?, ?, ?, ?, ?) ON CONFLICT(societyId, reportedOn) DO UPDATE
     SET amountPaise = excluded.amountPaise, reportedBy = excluded.reportedBy, recordedAt = excluded.recordedAt`,
   societyId, reportedOn, amountPaise, userId, new Date().toISOString());
 }
 
-export function financeSummary(societyId: string, month?: string) {
+export async function financeSummary(societyId: string, month?: string) {
   const period = month ?? null;
-  const dues = one<{
+  const dues = await one<{
     billedPaise: number; collectedPaise: number; outstandingPaise: number; overduePaise: number;
     billCount: number; outstandingCount: number;
-  }>(`SELECT coalesce(sum(b.totalPaise), 0) AS billedPaise, coalesce(sum(p.amountPaise), 0) AS collectedPaise,
-    coalesce(sum(b.totalPaise) FILTER (WHERE p.id IS NULL), 0) AS outstandingPaise,
-    coalesce(sum(b.totalPaise) FILTER (WHERE p.id IS NULL AND b.dueOn < ?), 0) AS overduePaise,
+  }>(`SELECT CAST(coalesce(sum(b.totalPaise), 0) AS BIGINT) AS billedPaise,
+    CAST(coalesce(sum(p.amountPaise), 0) AS BIGINT) AS collectedPaise,
+    CAST(coalesce(sum(b.totalPaise) FILTER (WHERE p.id IS NULL), 0) AS BIGINT) AS outstandingPaise,
+    CAST(coalesce(sum(b.totalPaise) FILTER (WHERE p.id IS NULL AND b.dueOn < ?), 0) AS BIGINT) AS overduePaise,
     count(*) AS billCount, count(*) FILTER (WHERE p.id IS NULL) AS outstandingCount
-    ${billFrom} WHERE b.societyId = ? AND (? IS NULL OR b.month = ?)`, financeToday(), societyId, period, period)!;
-  const expenses = one<{ expensePaise: number; vendorDuePaise: number }>(`
-    SELECT coalesce(sum(amountPaise) FILTER (WHERE paidOn IS NOT NULL), 0) AS expensePaise,
-           coalesce(sum(amountPaise) FILTER (WHERE paidOn IS NULL), 0) AS vendorDuePaise
-    FROM society_finance_expenses WHERE societyId = ? AND (? IS NULL OR substr(incurredOn, 1, 7) = ?)`,
-  societyId, period, period)!;
-  const balance = one<{ amountPaise: number; reportedOn: string }>(`SELECT amountPaise, reportedOn
+    ${billFrom} WHERE b.societyId = ? AND (CAST(? AS TEXT) IS NULL OR b.month = ?)`, financeToday(), societyId, period, period);
+  const expenses = await one<{ expensePaise: number; vendorDuePaise: number }>(`
+    SELECT CAST(coalesce(sum(amountPaise) FILTER (WHERE paidOn IS NOT NULL), 0) AS BIGINT) AS expensePaise,
+           CAST(coalesce(sum(amountPaise) FILTER (WHERE paidOn IS NULL), 0) AS BIGINT) AS vendorDuePaise
+    FROM society_finance_expenses WHERE societyId = ? AND (CAST(? AS TEXT) IS NULL OR substr(incurredOn, 1, 7) = ?)`,
+  societyId, period, period);
+  const balance = await one<{ amountPaise: number; reportedOn: string }>(`SELECT amountPaise, reportedOn
     FROM society_finance_bank_balances WHERE societyId = ? ORDER BY reportedOn DESC LIMIT 1`, societyId);
-  return { ...dues, ...expenses, bankBalancePaise: balance?.amountPaise ?? null, bankBalanceOn: balance?.reportedOn ?? null };
+  return { ...dues!, ...expenses!, bankBalancePaise: balance?.amountPaise ?? null, bankBalanceOn: balance?.reportedOn ?? null };
 }

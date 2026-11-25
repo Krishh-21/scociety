@@ -1,17 +1,19 @@
 export default function Loading() {
   return (
-    <div className="min-h-screen flex justify-center bg-canvas-alt">
-      <div className="w-full max-w-[460px] bg-canvas min-h-screen border-x border-line p-4">
-        <div className="h-16 rounded-2xl bg-canvas-alt animate-pulse mb-4" />
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="card p-4 mb-3">
-            <div className="h-3 w-24 rounded bg-canvas-alt animate-pulse mb-3" />
-            <div className="h-5 w-3/4 rounded bg-canvas-alt animate-pulse mb-4" />
-            <div className="h-9 w-1/2 rounded bg-canvas-alt animate-pulse mb-4" />
-            <div className="h-2.5 w-full rounded-full bg-canvas-alt animate-pulse" />
-          </div>
-        ))}
-        <span className="sr-only">Loading</span>
+    <div role="status" className="mx-auto min-h-screen max-w-6xl px-4 py-8 sm:px-8 lg:py-12">
+      <span className="sr-only">Loading JODO</span>
+      <div aria-hidden="true" className="space-y-6 motion-safe:animate-pulse">
+        <div className="h-10 w-2/3 max-w-xs rounded-xl bg-canvas-alt" />
+        <div className="h-36 rounded-card bg-brand-50" />
+        <div className="grid gap-4 md:grid-cols-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="card space-y-4 p-5">
+              <div className="h-4 w-24 rounded bg-canvas-alt" />
+              <div className="h-6 w-3/4 rounded bg-canvas-alt" />
+              <div className="h-3 w-full rounded-full bg-canvas-alt" />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

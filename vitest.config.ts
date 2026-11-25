@@ -4,10 +4,10 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    env: { DATABASE_URL: "", VERCEL: "" },
     include: ["tests/**/*.test.ts"],
-    // Each file gets its own process, so each gets its own SQLite file.
+    // The SQLite connection is process-global, so keep test files in separate workers.
     pool: "forks",
-    poolOptions: { forks: { singleFork: true } },
   },
   resolve: {
     alias: { "@": fileURLToPath(new URL(".", import.meta.url)) },

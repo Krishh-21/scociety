@@ -1,4 +1,4 @@
-import { all, id, one, run } from "./db";
+import { all, id, inTransaction, one, run } from "./db";
 import { isValidPhone } from "./session";
 
 /**
@@ -24,7 +24,7 @@ export class LeadError extends Error {}
 
 const clean = (v: unknown, max = 80) => String(v ?? "").trim().replace(/\s+/g, " ").slice(0, max);
 
-export function createLead(input: {
+export async function createLead(input: {
   kind: LeadKind;
   name: unknown;
   phone: unknown;
@@ -44,42 +44,46 @@ export function createLead(input: {
   }
   if (city.length < 2) throw new LeadError("Which city?");
 
-  // One request per phone per day is plenty; a second submit just says thanks again.
-  const recent = one<{ id: string }>(
-    "SELECT id FROM lead WHERE kind = ? AND phone = ? AND createdAt > ?",
-    input.kind, phone, new Date(Date.now() - 86_400_000).toISOString(),
-  );
-  if (recent) return { id: recent.id, duplicate: true };
+  return inTransaction(async () => {
+    // One request per phone per day is plenty; a second submit just says thanks again.
+    const recent = await one<{ id: string }>(
+      "SELECT id FROM lead WHERE kind = ? AND phone = ? AND createdAt > ?",
+      input.kind, phone, new Date(Date.now() - 86_400_000).toISOString(),
+    );
+    if (recent) return { id: recent.id, duplicate: true };
 
-  const leadId = id("lead");
-  run(
-    "INSERT INTO lead (id,kind,name,phone,org,city,detail,status,createdAt) VALUES (?,?,?,?,?,?,?,'new',?)",
-    leadId, input.kind, name, phone, org, city, JSON.stringify(input.detail ?? {}), new Date().toISOString(),
-  );
-  return { id: leadId, duplicate: false };
+    const leadId = id("lead");
+    await run(
+      "INSERT INTO lead (id,kind,name,phone,org,city,detail,status,createdAt) VALUES (?,?,?,?,?,?,?,'new',?)",
+      leadId, input.kind, name, phone, org, city, JSON.stringify(input.detail ?? {}), new Date().toISOString(),
+    );
+    return { id: leadId, duplicate: false };
+  });
 }
 
-export function listLeads(limit = 50): Lead[] {
-  return all<Omit<Lead, "detail"> & { detail: string }>(
+export async function listLeads(limit = 50): Promise<Lead[]> {
+  return (await all<Omit<Lead, "detail"> & { detail: string }>(
     "SELECT * FROM lead ORDER BY createdAt DESC LIMIT ?",
     limit,
-  ).map((l) => ({ ...l, detail: JSON.parse(l.detail || "{}") }));
+  )).map((l) => ({ ...l, detail: JSON.parse(l.detail || "{}") }));
 }
 
-export function markLead(leadId: string, status: "contacted" | "won" | "lost") {
-  run("UPDATE lead SET status = ? WHERE id = ?", status, leadId);
+export async function markLead(leadId: string, status: "contacted" | "won" | "lost") {
+  await run("UPDATE lead SET status = ? WHERE id = ?", status, leadId);
 }
 
 /** Public numbers for the landing page — real ones from the database, never invented. */
-export function publicStats() {
-  const saved = one<{ n: number }>(
-    `SELECT COALESCE(SUM(MAX(d.listPricePaise - m.finalPricePaise, 0) * m.units), 0) AS n
-     FROM deal_member m JOIN deal d ON d.id = m.dealId WHERE m.finalPricePaise IS NOT NULL`,
-  )!.n;
-  const confirmed = one<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM deal WHERE status IN ('locked','in_progress','completed')",
-  )!.n;
-  const societies = one<{ n: number }>("SELECT COUNT(*) AS n FROM society")!.n;
-  const neighbours = one<{ n: number }>("SELECT COUNT(*) AS n FROM residency WHERE status = 'verified'")!.n;
-  return { savedPaise: saved, confirmed, societies, neighbours };
+export async function publicStats() {
+  const stats = await one<{ savedPaise: number; confirmed: number; societies: number; neighbours: number }>(
+    `SELECT (
+        SELECT CAST(COALESCE(SUM(CAST(CASE WHEN d.listPricePaise > m.finalPricePaise
+          THEN d.listPricePaise - m.finalPricePaise ELSE 0 END AS BIGINT) * m.units), 0) AS BIGINT)
+        FROM deal_member m JOIN deal d ON d.id = m.dealId
+        WHERE m.finalPricePaise IS NOT NULL
+      ) AS savedPaise,
+      (SELECT COUNT(*) FROM deal WHERE status IN ('locked','in_progress','completed')) AS confirmed,
+      (SELECT COUNT(*) FROM society) AS societies,
+      (SELECT COUNT(*) FROM residency WHERE status = 'verified') AS neighbours`,
+  );
+  return stats!;
 }

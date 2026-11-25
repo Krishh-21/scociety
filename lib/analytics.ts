@@ -4,9 +4,9 @@ import { all, run } from "./db";
  * The events docs/04-screens-spec.md lists per screen. Written to a table here;
  * in production this is the PostHog call with the same name and props.
  */
-export function track(userId: string | null, name: string, props: Record<string, unknown> = {}) {
+export async function track(userId: string | null, name: string, props: Record<string, unknown> = {}) {
   try {
-    run(
+    await run(
       "INSERT INTO analytics_event (userId,name,props,createdAt) VALUES (?,?,?,?)",
       userId, name, JSON.stringify(props), new Date().toISOString(),
     );
@@ -15,8 +15,8 @@ export function track(userId: string | null, name: string, props: Record<string,
   }
 }
 
-export function funnel() {
-  const rows = all<{ name: string; n: number }>(
+export async function funnel() {
+  const rows = await all<{ name: string; n: number }>(
     "SELECT name, COUNT(*) AS n FROM analytics_event GROUP BY name ORDER BY n DESC",
   );
   const byName = Object.fromEntries(rows.map((r) => [r.name, r.n]));

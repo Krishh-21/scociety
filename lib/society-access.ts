@@ -18,9 +18,9 @@ export function requireSocietyCommittee(me: Me | null): NonNullable<Me["residenc
   return residency;
 }
 
-export function requireSocietyGuard(me: Me | null) {
+export async function requireSocietyGuard(me: Me | null) {
   if (me?.user.role !== "guard") throw new SocietyAccessError("Sign in as the assigned society guard.");
-  const assignment = one<{ societyId: string; societyName: string }>(
+  const assignment = await one<{ societyId: string; societyName: string }>(
     `SELECT g.societyId, s.name AS societyName FROM guard_assignment g
      JOIN society s ON s.id = g.societyId WHERE g.userId = ? AND g.isActive = 1`,
     me.user.id,
@@ -29,7 +29,7 @@ export function requireSocietyGuard(me: Me | null) {
   return assignment;
 }
 
-export function listSocietyGuards(me: Me | null) {
+export async function listSocietyGuards(me: Me | null) {
   const { societyId } = requireSocietyCommittee(me);
   return all<{ userId: string; name: string; phone: string; isActive: 0 | 1 }>(
     `SELECT g.userId, u.name, u.phone, g.isActive FROM guard_assignment g
@@ -38,25 +38,28 @@ export function listSocietyGuards(me: Me | null) {
   );
 }
 
-export function registerGuard(me: Me | null, phone: string, name: string) {
+export async function registerGuard(me: Me | null, phone: string, name: string) {
   const { societyId } = requireSocietyCommittee(me);
   const displayName = name.trim();
   if (!isValidPhone(phone.trim())) throw new SocietyAccessError("Enter a valid 10-digit mobile number.");
   if (displayName.length < 2 || displayName.length > 60) throw new SocietyAccessError("Enter a guard name of 2 to 60 characters.");
-  return inTransaction(() => {
-    if (one("SELECT id FROM user WHERE phone = ?", phone.trim())) throw new SocietyAccessError("This mobile number is already in use.");
+  return inTransaction(async () => {
     const guardId = id("usr_guard");
-    run("INSERT INTO user (id, phone, name, role) VALUES (?, ?, ?, 'guard')", guardId, phone.trim(), displayName);
-    run("INSERT INTO guard_assignment (userId, societyId) VALUES (?, ?)", guardId, societyId);
+    const result = await run(
+      "INSERT INTO user (id, phone, name, role) VALUES (?, ?, ?, 'guard') ON CONFLICT(phone) DO NOTHING",
+      guardId, phone.trim(), displayName,
+    );
+    if (!result.changes) throw new SocietyAccessError("This mobile number is already in use.");
+    await run("INSERT INTO guard_assignment (userId, societyId) VALUES (?, ?)", guardId, societyId);
     return guardId;
   });
 }
 
-export function setGuardActive(me: Me | null, guardId: string, active: boolean) {
+export async function setGuardActive(me: Me | null, guardId: string, active: boolean) {
   const { societyId } = requireSocietyCommittee(me);
-  return inTransaction(() => {
-    const result = run("UPDATE guard_assignment SET isActive = ? WHERE userId = ? AND societyId = ?", Number(active), guardId, societyId);
+  return inTransaction(async () => {
+    const result = await run("UPDATE guard_assignment SET isActive = ? WHERE userId = ? AND societyId = ?", Number(active), guardId, societyId);
     if (result.changes === 0) throw new SocietyAccessError("Guard account not found in your society.");
-    if (!active) run("DELETE FROM session WHERE userId = ?", guardId);
+    if (!active) await run("DELETE FROM session WHERE userId = ?", guardId);
   });
 }

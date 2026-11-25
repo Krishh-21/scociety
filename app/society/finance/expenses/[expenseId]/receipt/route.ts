@@ -8,7 +8,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ exp
   const headers = { "Cache-Control": "private, no-store" };
   const [{ expenseId }, me] = await Promise.all([params, getMe()]);
   try {
-    const receipt = financeExpenseReceipt(me, expenseId);
+    const receipt = await financeExpenseReceipt(me, expenseId);
     if (!receipt) return new Response(null, { status: 404, headers });
     const extension = receipt.contentType === "image/jpeg" ? "jpg" : "png";
     return new Response(new Uint8Array(receipt.bytes), {

@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand-50: #eaf2fe;
-  --color-brand-500: #3b8af5;
-  --color-brand-600: #1570ef;
-  --color-brand-700: #0b5fd0;
+  --color-brand-50: #e9f2e8;
+  --color-brand-500: #398064;
+  --color-brand-600: #156348;
+  --color-brand-700: #104f39;
 
-  --color-save-50: #e8f8f0;
-  --color-save-500: #12a860;
-  --color-save-600: #0a8c4e;
-  --color-save-700: #05713d;
+  --color-save-50: #eaf4dc;
+  --color-save-500: #55904e;
+  --color-save-600: #28734b;
+  --color-save-700: #305b29;
 
   --color-warn-50: #fff6e8;
   --color-warn-500: #f79009;
@@ -18,17 +18,17 @@
   --color-danger-50: #fee9ef;
   --color-danger-600: #c01048;
 
-  --color-ink-900: #0c1420;
-  --color-ink-700: #303b4d;
-  --color-ink-500: #667085;
-  --color-ink-300: #a7b0be;
+  --color-ink-900: #132c24;
+  --color-ink-700: #344d42;
+  --color-ink-500: #52675b;
+  --color-ink-300: #5d6e64;
 
-  --color-line: #e6e9ef;
-  --color-surface: #ffffff;
-  --color-canvas: #f6f8fb;
-  --color-canvas-alt: #eef2f7;
+  --color-line: #dce3d9;
+  --color-surface: #fffefa;
+  --color-canvas: #f7f6f0;
+  --color-canvas-alt: #edf0e8;
 
-  --radius-card: 16px;
+  --radius-card: 18px;
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
 }
 
@@ -36,18 +36,19 @@
    picked a side in Profile (data-theme on <html>). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-ink-900: #f2f5f9;
-    --color-ink-700: #c3cbd8;
-    --color-ink-500: #8e99aa;
-    --color-ink-300: #5b6578;
-    --color-line: #242c3a;
-    --color-surface: #141a24;
-    --color-canvas: #0c1118;
-    --color-canvas-alt: #111823;
-    --color-brand-50: #10233c;
-    --color-brand-700: #7fb2ff;
-    --color-save-50: #0a2219;
-    --color-save-700: #5fd99b;
+    color-scheme: dark;
+    --color-ink-900: #edf4ed;
+    --color-ink-700: #c2d2c5;
+    --color-ink-500: #a6b9aa;
+    --color-ink-300: #9bad9f;
+    --color-line: #35463a;
+    --color-surface: #17251e;
+    --color-canvas: #101b17;
+    --color-canvas-alt: #1d2e24;
+    --color-brand-50: #223d2d;
+    --color-brand-700: #95d4ac;
+    --color-save-50: #283b24;
+    --color-save-700: #b8df9b;
     --color-warn-50: #2a1d0b;
     --color-warn-600: #f0ad4e;
     --color-danger-50: #2a0f19;
@@ -56,18 +57,19 @@
 }
 
 :root[data-theme="dark"] {
-  --color-ink-900: #f2f5f9;
-  --color-ink-700: #c3cbd8;
-  --color-ink-500: #8e99aa;
-  --color-ink-300: #5b6578;
-  --color-line: #242c3a;
-  --color-surface: #141a24;
-  --color-canvas: #0c1118;
-  --color-canvas-alt: #111823;
-  --color-brand-50: #10233c;
-  --color-brand-700: #7fb2ff;
-  --color-save-50: #0a2219;
-  --color-save-700: #5fd99b;
+  color-scheme: dark;
+  --color-ink-900: #edf4ed;
+  --color-ink-700: #c2d2c5;
+  --color-ink-500: #a6b9aa;
+  --color-ink-300: #9bad9f;
+  --color-line: #35463a;
+  --color-surface: #17251e;
+  --color-canvas: #101b17;
+  --color-canvas-alt: #1d2e24;
+  --color-brand-50: #223d2d;
+  --color-brand-700: #95d4ac;
+  --color-save-50: #283b24;
+  --color-save-700: #b8df9b;
   --color-warn-50: #2a1d0b;
   --color-warn-600: #f0ad4e;
   --color-danger-50: #2a0f19;
@@ -100,7 +102,7 @@
   }
 
   :focus-visible {
-    outline: 3px solid var(--color-brand-600);
+    outline: 3px solid var(--color-brand-700);
     outline-offset: 2px;
   }
 }
@@ -142,7 +144,7 @@
     color: #fff;
   }
   .btn-whatsapp {
-    background: #1fa855;
+    background: #137b43;
     color: #fff;
   }
   .btn-primary:hover:not(:disabled),
@@ -179,15 +181,15 @@
 
   /* A dark band that stays dark in both themes (the ink tokens flip in dark mode). */
   .band-dark {
-    background: #0c1420;
+    background: #132c24;
     color: #fff;
   }
   :root[data-theme="dark"] .band-dark {
-    background: #05080d;
+    background: #0c1712;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) .band-dark {
-      background: #05080d;
+      background: #0c1712;
     }
   }
 }

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { MarketingPage } from "@/components/marketing";
+import { FaqList, LegalLayout, MarketingPage } from "@/components/marketing";
 import { FAQ } from "@/lib/faq";
 
 export const metadata: Metadata = {
@@ -50,6 +50,7 @@ const TOPICS: { id: string; title: string; items: [string, string][] }[] = [
 export default function HelpPage() {
   return (
     <MarketingPage
+      wide
       eyebrow="Help"
       title="How JODO works, in plain words."
       intro={
@@ -58,64 +59,57 @@ export default function HelpPage() {
           a button to report an issue.
         </p>
       }
+      aside={
+        <Link href="/bookings" className="btn btn-primary h-12 px-6 text-[15px] self-start lg:self-end">
+          Go to my bookings
+        </Link>
+      }
     >
-      <nav aria-label="Help topics" className="flex flex-wrap gap-2 mb-10">
-        {[...TOPICS.map((t) => [t.id, t.title] as const), ["faq", "Common questions"] as const].map(([id, title]) => (
-          <a key={id} href={`#${id}`} className="pill bg-canvas-alt text-ink-700 hover:bg-line">
-            {title}
-          </a>
-        ))}
-      </nav>
+      <LegalLayout sections={[...TOPICS.map(({ id, title }) => ({ id, title })), { id: "faq", title: "Common questions" }]}>
+        <div className="flex flex-col gap-14">
+          {TOPICS.map((topic) => (
+            <section key={topic.id} id={topic.id} aria-labelledby={`${topic.id}-title`} className="scroll-mt-24">
+              <h2 id={`${topic.id}-title`} className="text-[26px] font-extrabold tracking-tight mb-2">
+                {topic.title}
+              </h2>
+              <dl className="border-t border-line">
+                {topic.items.map(([q, a]) => (
+                  <div key={q} className="py-5 border-b border-line">
+                    <dt className="font-bold text-[17px]">{q}</dt>
+                    <dd className="text-[15px] text-ink-700 leading-relaxed mt-2">{a}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
 
-      <div className="flex flex-col gap-12">
-        {TOPICS.map((topic) => (
-          <section key={topic.id} id={topic.id} className="scroll-mt-20">
-            <h2 className="text-[24px] font-extrabold mb-4">{topic.title}</h2>
-            <dl className="flex flex-col gap-3">
-              {topic.items.map(([q, a]) => (
-                <div key={q} className="card p-5">
-                  <dt className="font-bold text-[16px]">{q}</dt>
-                  <dd className="text-[15px] text-ink-700 leading-relaxed mt-2">{a}</dd>
-                </div>
-              ))}
-            </dl>
+          <section id="faq" aria-labelledby="faq-title" className="scroll-mt-24">
+            <h2 id="faq-title" className="text-[26px] font-extrabold tracking-tight mb-2">
+              Common questions
+            </h2>
+            <FaqList items={FAQ} />
           </section>
-        ))}
 
-        <section id="faq" className="scroll-mt-20">
-          <h2 className="text-[24px] font-extrabold mb-4">Common questions</h2>
-          <div className="flex flex-col gap-3">
-            {FAQ.map(([q, a]) => (
-              <details key={q} className="card p-5 group">
-                <summary className="cursor-pointer list-none flex items-center justify-between gap-4 font-bold text-[16px]">
-                  {q}
-                  <span aria-hidden="true" className="text-ink-500 transition-transform group-open:rotate-45 text-[22px] leading-none">
-                    +
-                  </span>
-                </summary>
-                <p className="text-[15px] text-ink-700 leading-relaxed mt-3">{a}</p>
-              </details>
-            ))}
-          </div>
-        </section>
-
-        <section className="card p-6 bg-brand-50 border-brand-500/20">
-          <h2 className="text-[20px] font-extrabold mb-2">Still stuck?</h2>
-          <p className="text-[15px] text-ink-700 leading-relaxed">
-            Raise an issue from the booking it's about — it reaches ops with the full record attached, which is much
-            faster than starting from scratch. For anything else, your society secretary can reach the JODO team
-            directly.
-          </p>
-          <div className="flex flex-wrap gap-2 mt-4">
-            <Link href="/bookings" className="btn btn-primary h-10 min-h-10 text-[14px]">
-              Go to my bookings
-            </Link>
-            <Link href="/" className="btn btn-quiet h-10 min-h-10 text-[14px]">
-              Back to home
-            </Link>
-          </div>
-        </section>
-      </div>
+          <section aria-labelledby="stuck-title" className="mk-forest rounded-[24px] p-6 sm:p-8">
+            <h2 id="stuck-title" className="text-[22px] font-extrabold tracking-tight mb-2">
+              Still stuck?
+            </h2>
+            <p className="text-[15px] text-white/75 leading-relaxed">
+              Raise an issue from the booking it's about — it reaches ops with the full record attached, which is much
+              faster than starting from scratch. For anything else, your society secretary can reach the JODO team
+              directly.
+            </p>
+            <div className="flex flex-wrap gap-2 mt-5">
+              <Link href="/bookings" className="btn mk-btn-lime h-11 min-h-11 text-[14px]">
+                Go to my bookings
+              </Link>
+              <Link href="/" className="btn mk-btn-ghost-light h-11 min-h-11 text-[14px]">
+                Back to home
+              </Link>
+            </div>
+          </section>
+        </div>
+      </LegalLayout>
     </MarketingPage>
   );
 }

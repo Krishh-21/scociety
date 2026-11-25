@@ -1,7 +1,10 @@
 import { randomInt } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+import { Pool, types, type PoolClient } from "pg";
+import { POSTGRES_SCHEMA, postgresConnection, postgresSql } from "./postgres-sql";
 import { SOCIETY_COMPLAINTS_SCHEMA } from "./society-complaints-schema";
 import { SOCIETY_COMMUNITY_SCHEMA } from "./society-community-schema";
 import { SOCIETY_FINANCE_SCHEMA } from "./society-finance-schema";
@@ -9,6 +12,11 @@ import { SOCIETY_GATE_SCHEMA } from "./society-gate-schema";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DB_PATH = process.env.JODO_DB ?? path.join(DATA_DIR, "jodo.db");
+const SQLITE_SCHEMA = () => SCHEMA + SOCIETY_COMPLAINTS_SCHEMA + SOCIETY_COMMUNITY_SCHEMA + SOCIETY_FINANCE_SCHEMA + SOCIETY_GATE_SCHEMA;
+
+export function usesPostgres() {
+  return Boolean(process.env.DATABASE_URL);
+}
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -102,7 +110,7 @@ CREATE TABLE IF NOT EXISTS session (
 
 CREATE TABLE IF NOT EXISTS notification (
   id TEXT PRIMARY KEY, userId TEXT NOT NULL, dealId TEXT, type TEXT NOT NULL,
-  title TEXT NOT NULL, body TEXT NOT NULL, createdAt TEXT NOT NULL, readAt TEXT
+  title TEXT NOT NULL, body TEXT NOT NULL, createdAt TEXT NOT NULL, readAt TEXT, gateVisitId TEXT
 );
 
 CREATE TABLE IF NOT EXISTS payment (
@@ -165,6 +173,7 @@ const MIGRATIONS: [table: string, column: string, ddl: string][] = [
   ["sku", "repeatMonths", "ALTER TABLE sku ADD COLUMN repeatMonths INTEGER NOT NULL DEFAULT 0"],
   ["user", "lang", "ALTER TABLE user ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'"],
   ["vendor", "skuIds", "ALTER TABLE vendor ADD COLUMN skuIds TEXT NOT NULL DEFAULT '[]'"],
+  ["notification", "gateVisitId", "ALTER TABLE notification ADD COLUMN gateVisitId TEXT"],
 ];
 
 /** What each seeded vendor offers — also backfills a database created before skuIds existed. */
@@ -190,12 +199,13 @@ function migrate(db: DatabaseSync) {
 function open(): DatabaseSync {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   const db = new DatabaseSync(DB_PATH);
-  db.exec(SCHEMA + SOCIETY_COMPLAINTS_SCHEMA + SOCIETY_COMMUNITY_SCHEMA + SOCIETY_FINANCE_SCHEMA + SOCIETY_GATE_SCHEMA);
+  db.exec(SQLITE_SCHEMA());
   migrate(db);
   return db;
 }
 
 export function getDb(): DatabaseSync {
+  if (usesPostgres() || process.env.VERCEL === "1") throw new Error("The SQLite connection is available only in local mode.");
   if (!globalThis.__jodoDb) {
     globalThis.__jodoDb = open();
     seedIfEmpty(globalThis.__jodoDb);
@@ -203,33 +213,110 @@ export function getDb(): DatabaseSync {
   return globalThis.__jodoDb;
 }
 
-// node:sqlite hands back null-prototype objects; React Server Components refuse to
-// serialise those, so every row is copied into a plain object on the way out.
-export function all<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T[] {
-  const rows = getDb().prepare(sql).all(...(params as never[])) as T[];
-  return rows.map((r) => ({ ...r }));
+/** Used only by the explicit hosted database initializer. */
+export function createDemoDatabase() {
+  const db = new DatabaseSync(":memory:");
+  db.exec(SQLITE_SCHEMA());
+  seed(db);
+  return db;
 }
 
-export function one<T = Record<string, unknown>>(sql: string, ...params: unknown[]): T | null {
-  const row = getDb().prepare(sql).get(...(params as never[])) as T | undefined;
-  return row ? { ...row } : null;
+type Transaction = { sqlite: DatabaseSync } | { postgres: PoolClient };
+const context = new AsyncLocalStorage<Transaction>();
+let sqliteQueue = Promise.resolve();
+let postgresPool: Pool | undefined;
+
+// PostgreSQL COUNT and SUM(integer) return bigint. The app uses safe integer counts and paise.
+types.setTypeParser(20, (value) => {
+  const result = Number(value);
+  if (!Number.isSafeInteger(result)) throw new RangeError("Database integer is outside the app's safe range.");
+  return result;
+});
+
+function pool() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) throw new Error("Set DATABASE_URL for the hosted PostgreSQL database.");
+  return postgresPool ??= new Pool({ ...postgresConnection(connectionString), max: 2, idleTimeoutMillis: 5_000, connectionTimeoutMillis: 10_000, allowExitOnIdle: true });
 }
 
-export function run(sql: string, ...params: unknown[]) {
-  return getDb().prepare(sql).run(...(params as never[]));
-}
-
-export function inTransaction<T>(work: () => T): T {
-  const db = getDb();
-  db.exec("BEGIN IMMEDIATE");
+async function withSqlite<T>(work: (db: DatabaseSync) => T | Promise<T>): Promise<T> {
+  const existing = context.getStore();
+  if (existing && "sqlite" in existing) return work(existing.sqlite);
+  const previous = sqliteQueue;
+  let release!: () => void;
+  sqliteQueue = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
   try {
-    const result = work();
-    db.exec("COMMIT");
+    return await work(getDb());
+  } finally {
+    release();
+  }
+}
+
+async function withPostgres<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+  const existing = context.getStore();
+  if (existing && "postgres" in existing) return work(existing.postgres);
+  const client = await pool().connect();
+  try {
+    await client.query(`BEGIN; SET LOCAL search_path TO ${POSTGRES_SCHEMA}, pg_catalog`);
+    const result = await work(client);
+    await client.query("COMMIT");
     return result;
   } catch (error) {
-    db.exec("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => {});
     throw error;
+  } finally {
+    client.release();
   }
+}
+
+function pgValues(params: unknown[]) {
+  return params.map((value) => value instanceof Uint8Array ? Buffer.from(value) : value);
+}
+
+export async function all<T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T[]> {
+  if (usesPostgres() || process.env.VERCEL === "1") {
+    return withPostgres(async (client) => (await client.query(postgresSql(sql), pgValues(params))).rows as T[]);
+  }
+  // SQLite returns null-prototype objects which React Server Components cannot serialize.
+  return withSqlite((db) => (db.prepare(sql).all(...(params as never[])) as T[]).map((row) => ({ ...row })));
+}
+
+export async function one<T = Record<string, unknown>>(sql: string, ...params: unknown[]): Promise<T | null> {
+  if (usesPostgres() || process.env.VERCEL === "1") return (await all<T>(sql, ...params))[0] ?? null;
+  return withSqlite((db) => {
+    const row = db.prepare(sql).get(...(params as never[])) as T | undefined;
+    return row ? { ...row } : null;
+  });
+}
+
+export async function run(sql: string, ...params: unknown[]): Promise<{ changes: number }> {
+  if (usesPostgres() || process.env.VERCEL === "1") {
+    return withPostgres(async (client) => ({ changes: (await client.query(postgresSql(sql), pgValues(params))).rowCount ?? 0 }));
+  }
+  return withSqlite((db) => ({ changes: Number(db.prepare(sql).run(...(params as never[])).changes) }));
+}
+
+export async function inTransaction<T>(work: () => Promise<T> | T): Promise<T> {
+  if (context.getStore()) throw new Error("Nested database transactions are unsupported.");
+  if (usesPostgres() || process.env.VERCEL === "1") {
+    return withPostgres(async (client) => {
+      // Match the serialized writers of SQLite's BEGIN IMMEDIATE for all app workflows.
+      await client.query("SELECT pg_advisory_xact_lock(110415234, 1)");
+      return context.run({ postgres: client }, work);
+    });
+  }
+  return withSqlite(async (db) => {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = await context.run({ sqlite: db }, work);
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  });
 }
 
 export function id(prefix: string) {

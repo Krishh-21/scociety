@@ -7,8 +7,10 @@ export const dynamic = "force-dynamic";
 
 export default async function ExpensesPage() {
   const { me, residency } = await financePageActor(true);
-  const { expensePaise, vendorDuePaise } = financeSummary(residency.societyId);
-  const expenses = financeExpenses(me);
+  const [{ expensePaise, vendorDuePaise }, expenses] = await Promise.all([
+    financeSummary(residency.societyId),
+    financeExpenses(me),
+  ]);
   const today = financeToday();
 
   return (

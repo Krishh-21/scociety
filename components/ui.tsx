@@ -1,21 +1,26 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { discountPct, formatDate, rupees } from "@/lib/pricing";
 import type { DealView } from "@/lib/types";
 import Countdown from "./Countdown";
+import "./app-shell.css";
 
 export function PriceBlock({ deal, size = "lg" }: { deal: DealView; size?: "lg" | "sm" }) {
   const dropped = deal.currentPricePaise < deal.listPricePaise;
   return (
-    <div className="flex items-end gap-3 flex-wrap">
+    <div className="flex items-end gap-x-3 gap-y-1 flex-wrap">
       <span
-        className={`tnum font-extrabold text-save-700 leading-none ${size === "lg" ? "text-[40px]" : "text-[26px]"}`}
+        className={`tnum font-extrabold text-save-700 leading-none tracking-tight ${size === "lg" ? "text-[40px] sm:text-[46px]" : "text-[26px]"}`}
       >
         {rupees(deal.currentPricePaise)}
       </span>
       <span className="text-ink-500 text-sm pb-1">per {deal.sku.unitLabel}</span>
       {dropped && (
         <>
-          <span className="tnum text-ink-300 line-through pb-1">{rupees(deal.listPricePaise)}</span>
+          <span className="tnum text-ink-300 line-through pb-1">
+            <span className="sr-only">Usual price </span>
+            {rupees(deal.listPricePaise)}
+          </span>
           <span className="pill bg-save-50 text-save-700 mb-1">
             Save {rupees(deal.savingsPaise)} · {discountPct(deal.listPricePaise, deal.currentPricePaise)}%
           </span>
@@ -35,7 +40,7 @@ export function FlatCounter({ deal }: { deal: DealView }) {
   const unitSingular = unit.endsWith("s") ? unit.slice(0, -1) : unit;
   return (
     <div>
-      <div className="flex items-baseline justify-between mb-2">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
         <div className="tnum text-[22px] font-extrabold">
           {deal.basisCount}
           {!hitTarget && <span className="text-ink-300 font-bold"> / {deal.targetFlats}</span>}
@@ -49,7 +54,14 @@ export function FlatCounter({ deal }: { deal: DealView }) {
           </span>
         )}
       </div>
-      <div className="h-2.5 rounded-full bg-canvas-alt overflow-hidden">
+      <div
+        className="h-2.5 rounded-full bg-canvas-alt overflow-hidden"
+        role="progressbar"
+        aria-label={`${unit} joined towards the best price`}
+        aria-valuemin={0}
+        aria-valuemax={deal.targetFlats}
+        aria-valuenow={Math.min(deal.basisCount, deal.targetFlats)}
+      >
         <div
           className={`h-full rounded-full ${hitTarget ? "bg-save-600" : "bg-brand-600"}`}
           style={{ width: `${Math.max(4, pct)}%`, transition: "width 400ms ease" }}
@@ -78,8 +90,8 @@ export function LadderMeter({ deal }: { deal: DealView }) {
     (a, b) => a.minFlats - b.minFlats,
   );
   return (
-    <div className="card p-4">
-      <p className="eyebrow mb-3">Price ladder</p>
+    <section className="card p-4 sm:p-5">
+      <h2 className="jd-section-title mb-3">Price ladder</h2>
       <ul className="flex flex-col gap-1.5">
         {rows.map((s, i) => {
           const active = deal.currentPricePaise === s.pricePaise;
@@ -87,8 +99,9 @@ export function LadderMeter({ deal }: { deal: DealView }) {
           return (
             <li
               key={i}
-              className={`flex items-center justify-between rounded-xl px-3 py-2 text-sm ${
-                active ? "bg-save-50 ring-1 ring-save-500/40" : unlocked ? "bg-canvas-alt" : ""
+              aria-current={active ? "true" : undefined}
+              className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm ${
+                active ? "bg-save-50 ring-1 ring-save-500/40" : unlocked ? "bg-canvas-alt" : "border border-dashed border-line"
               }`}
             >
               <span className={`tnum ${active ? "font-bold text-save-700" : "text-ink-700"}`}>
@@ -98,8 +111,9 @@ export function LadderMeter({ deal }: { deal: DealView }) {
                     : "1"
                   : `${s.minFlats}+`}{" "}
                 {deal.basisLabel}
+                {active && <span className="ms-2 text-[11px] font-extrabold uppercase tracking-wide">Now</span>}
               </span>
-              <span className={`tnum font-bold ${active ? "text-save-700" : unlocked ? "text-ink-700" : "text-ink-300"}`}>
+              <span className={`tnum font-bold ${active ? "text-save-700" : unlocked ? "text-ink-700" : "text-ink-500"}`}>
                 {rupees(s.pricePaise)}
               </span>
             </li>
@@ -109,7 +123,7 @@ export function LadderMeter({ deal }: { deal: DealView }) {
       <p className="text-[12px] text-ink-500 mt-3 leading-relaxed">
         Everyone pays the <strong>final</strong> group price — including whoever joined first. The price can only fall.
       </p>
-    </div>
+    </section>
   );
 }
 
@@ -123,7 +137,11 @@ export function StatusPill({ deal }: { deal: DealView }) {
     cancelled: ["bg-danger-50 text-danger-600", "Cancelled"],
   };
   const [cls, label] = map[deal.status] ?? ["bg-canvas-alt text-ink-500", deal.status];
-  return <span className={`pill ${cls}`}>{label}</span>;
+  return <span className={`pill shrink-0 ${cls}`}>{label}</span>;
+}
+
+function initials(name: string) {
+  return name.split(" ").map((p) => p[0]).slice(0, 2).join("");
 }
 
 export function NeighbourStack({ deal, compact = false }: { deal: DealView; compact?: boolean }) {
@@ -134,14 +152,14 @@ export function NeighbourStack({ deal, compact = false }: { deal: DealView; comp
     // three lines next to it reads as clutter, so the card just counts.
     return (
       <div className="flex items-center gap-2 min-w-0">
-        <div className="flex -space-x-2 shrink-0">
+        <div className="flex -space-x-2 shrink-0" aria-hidden="true">
           {shown.map((m) => (
             <span
               key={m.id}
               title={`${m.name} · ${m.flat}`}
               className="w-7 h-7 rounded-full bg-brand-50 text-brand-700 text-[11px] font-bold grid place-items-center ring-2 ring-surface"
             >
-              {m.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+              {initials(m.name)}
             </span>
           ))}
         </div>
@@ -153,14 +171,14 @@ export function NeighbourStack({ deal, compact = false }: { deal: DealView; comp
   }
   return (
     <div className="flex items-center gap-2">
-      <div className="flex -space-x-2">
+      <div className="flex -space-x-2 shrink-0" aria-hidden="true">
         {shown.map((m) => (
           <span
             key={m.id}
             title={`${m.name} · ${m.flat}`}
             className="w-8 h-8 rounded-full bg-brand-50 text-brand-700 text-[12px] font-bold grid place-items-center ring-2 ring-surface"
           >
-            {m.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+            {initials(m.name)}
           </span>
         ))}
       </div>
@@ -181,27 +199,28 @@ export function DealCard({ deal }: { deal: DealView }) {
         ? "ring-1 ring-warn-500/50"
         : "";
   return (
-    <Link href={`/deal/${deal.id}`} className={`card p-4 block ${ring} hover:shadow-md transition-shadow`}>
-      <div className="flex items-center justify-between mb-1.5">
-        <p className="eyebrow">
+    <Link href={`/deal/${deal.id}`} className={`card jd-lift p-4 sm:p-5 flex flex-col ${ring}`}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="eyebrow truncate">
           {deal.sku.category} · {formatDate(deal.serviceDate)}
         </p>
         <StatusPill deal={deal} />
       </div>
-      <h3 className="text-[17px] font-bold leading-snug mb-0.5">{deal.sku.name}</h3>
+      <h3 className="text-[17px] font-extrabold leading-snug tracking-tight mb-0.5">{deal.sku.name}</h3>
       <p className="text-[13px] text-ink-500 mb-3">
-        {deal.vendor.name} · ★ {deal.vendor.rating}
+        {deal.vendor.name} · <span aria-label={`rated ${deal.vendor.rating}`}>★ {deal.vendor.rating}</span>
       </p>
       <div className="mb-3">
         <PriceBlock deal={deal} size="sm" />
       </div>
       <FlatCounter deal={deal} />
-      <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-line">
+      <div aria-hidden="true" className="flex-1 min-h-3" />
+      <div className="flex items-center justify-between gap-3 pt-3 border-t border-line">
         <NeighbourStack deal={deal} compact />
         {deal.status === "open" ? (
           <Countdown to={deal.joinDeadline} />
         ) : (
-          <span className="text-[12px] text-ink-500">{formatDate(deal.serviceDate)}</span>
+          <span className="text-[12px] text-ink-500 shrink-0">{formatDate(deal.serviceDate)}</span>
         )}
       </div>
     </Link>
@@ -210,8 +229,8 @@ export function DealCard({ deal }: { deal: DealView }) {
 
 export function ScopeList({ deal }: { deal: DealView }) {
   return (
-    <div className="card p-4">
-      <p className="eyebrow mb-3">What you get</p>
+    <section className="card p-4 sm:p-5">
+      <h2 className="jd-section-title mb-3">What you get</h2>
       <ul className="flex flex-col gap-2">
         {deal.sku.included.map((x) => (
           <li key={x} className="flex gap-2 text-sm text-ink-700">
@@ -220,9 +239,9 @@ export function ScopeList({ deal }: { deal: DealView }) {
           </li>
         ))}
         {deal.sku.excluded.map((x) => (
-          <li key={x} className="flex gap-2 text-sm text-ink-300">
+          <li key={x} className="flex gap-2 text-sm text-ink-500">
             <span aria-hidden className="font-bold">×</span>
-            {x}
+            <span><span className="sr-only">Not included: </span>{x}</span>
           </li>
         ))}
       </ul>
@@ -230,17 +249,17 @@ export function ScopeList({ deal }: { deal: DealView }) {
         {deal.sku.durationMin} min per {deal.sku.unitLabel}
         {deal.sku.warrantyDays > 0 && ` · ${deal.sku.warrantyDays}-day workmanship warranty`}
       </p>
-    </div>
+    </section>
   );
 }
 
 export function VendorCard({ deal }: { deal: DealView }) {
   return (
-    <div className="card p-4 flex items-start gap-3">
-      <span className="w-11 h-11 rounded-xl bg-canvas-alt grid place-items-center font-bold text-ink-700">
+    <section className="card p-4 sm:p-5 flex items-start gap-3" aria-label={`Vendor: ${deal.vendor.name}`}>
+      <span aria-hidden="true" className="w-11 h-11 shrink-0 rounded-xl bg-canvas-alt grid place-items-center font-bold text-ink-700">
         {deal.vendor.name.slice(0, 2).toUpperCase()}
       </span>
-      <div className="flex-1">
+      <div className="flex-1 min-w-0">
         <p className="font-bold">{deal.vendor.name}</p>
         <p className="text-[13px] text-ink-500">
           ★ {deal.vendor.rating} · {deal.vendor.jobsDone.toLocaleString("en-IN")} jobs done
@@ -253,7 +272,7 @@ export function VendorCard({ deal }: { deal: DealView }) {
           ))}
         </div>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -266,49 +285,219 @@ export function FailSafeNote({ deal }: { deal: DealView }) {
   );
 }
 
-export function TabBar({
-  active,
-  t = (_k: string, en: string) => en,
+/* ------------------------------------------------------------ journey */
+
+const JOURNEY = ["Join", "Group fills", "Confirmed", "Service day", "Done"] as const;
+
+/**
+ * Where a booking is, in the resident's words. Derived only from the deal's
+ * status, whether you're in it and whether your own visit is finished — the
+ * same facts the rest of the screen already shows.
+ */
+export function JourneySteps({
+  status,
+  joined,
+  visitDone = false,
+  className = "",
 }: {
-  active: "home" | "explore" | "bookings" | "society" | "profile";
-  t?: (key: string, english: string) => string;
+  status: DealView["status"];
+  joined: boolean;
+  visitDone?: boolean;
+  className?: string;
 }) {
-  const items = [
-    { key: "home", href: "/", label: t("nav.home", "Home") },
-    { key: "explore", href: "/explore", label: t("nav.explore", "Explore") },
-    { key: "bookings", href: "/bookings", label: t("nav.bookings", "Bookings") },
-    { key: "society", href: "/society", label: t("nav.society", "Society") },
-    { key: "profile", href: "/profile", label: t("nav.profile", "Profile") },
-  ] as const;
+  // A group you never joined isn't your booking once it stops filling.
+  if (!joined && status !== "open") return null;
+  let current: number;
+  if (status === "completed" || visitDone) current = 5;
+  else if (status === "in_progress") current = 3;
+  else if (status === "locked") current = 2;
+  else if (status === "open") current = joined ? 1 : 0;
+  else return null;
   return (
-    <nav
-      aria-label="Main"
-      className="sticky bottom-0 bg-surface/95 backdrop-blur border-t border-line grid grid-cols-5 z-20"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-    >
-      {items.map((i) => {
-        const on = active === i.key;
+    <ol className={`jd-steps ${className}`} aria-label="Booking progress">
+      {JOURNEY.map((label, i) => {
+        const state = i < current ? "done" : i === current ? "current" : "todo";
         return (
-          <Link
-            key={i.key}
-            href={i.href}
-            aria-current={on ? "page" : undefined}
-            className={`relative flex flex-col items-center gap-0.5 pt-2.5 pb-2 text-[11px] font-bold ${
-              on ? "text-brand-700" : "text-ink-500"
-            }`}
-          >
-            {on && <span aria-hidden="true" className="absolute top-0 h-0.5 w-8 rounded-full bg-brand-600" />}
-            <TabIcon name={i.key} />
-            {i.label}
-          </Link>
+          <li key={label} className="jd-step" data-state={state} aria-current={state === "current" ? "step" : undefined}>
+            <span className="jd-step__dot" aria-hidden="true">
+              {state === "done" && (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12.5l4.5 4.5L19 7.5" />
+                </svg>
+              )}
+            </span>
+            <span>
+              {label}
+              <span className="sr-only">{state === "done" ? " — done" : state === "current" ? " — current step" : ""}</span>
+            </span>
+          </li>
         );
       })}
-    </nav>
+    </ol>
   );
 }
 
-function TabIcon({ name }: { name: "home" | "explore" | "bookings" | "society" | "profile" }) {
-  const paths: Record<typeof name, React.ReactNode> = {
+/* ------------------------------------------------------- visitor alert */
+
+/**
+ * The one interruption the app is allowed: someone is waiting at the gate.
+ * Render it inside a live region that is always mounted so a refresh that
+ * brings a new request is announced.
+ */
+export function VisitorAlert({
+  count,
+  visitorName,
+  detail,
+  href,
+  linkLabel,
+  headingId = "visitor-alert-title",
+  children,
+}: {
+  count: number;
+  visitorName?: string;
+  detail?: string;
+  href: string;
+  linkLabel?: string;
+  headingId?: string;
+  /** Inline decision controls (approve / deny) for a single request. */
+  children?: ReactNode;
+}) {
+  const single = count === 1;
+  return (
+    <section className="jd-alert" aria-labelledby={headingId}>
+      <span className="jd-alert__icon" aria-hidden="true">
+        <Icon name="gate" size={20} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="jd-alert__kicker">Needs your answer</p>
+        <h2 id={headingId} className="text-[18px] font-extrabold leading-snug break-words">
+          {single ? "Visitor at the gate" : `${count} visitors at the gate`}
+        </h2>
+        {single && visitorName && (
+          <p className="text-sm text-ink-700 break-words mt-0.5">
+            <strong>{visitorName}</strong>
+            {detail ? ` · ${detail}` : ""}
+          </p>
+        )}
+        {children}
+        <Link href={href} className="mt-2 inline-flex min-h-10 items-center gap-1 text-sm font-bold text-ink-900 underline decoration-warn-500 decoration-2 underline-offset-4">
+          {linkLabel ?? (single ? "Open entry ticket" : "Review entry requests")}
+          <span aria-hidden="true">›</span>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+/* --------------------------------------------------- layout primitives */
+
+export function SectionHeader({
+  title,
+  id,
+  aside,
+  as: Heading = "h2",
+}: {
+  title: string;
+  id?: string;
+  aside?: ReactNode;
+  as?: "h2" | "h3";
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <Heading id={id} className="jd-section-title">{title}</Heading>
+      {aside}
+    </div>
+  );
+}
+
+export function QuickAction({
+  href,
+  label,
+  note,
+  icon,
+  primary = false,
+}: {
+  href: string;
+  label: string;
+  note?: string;
+  icon: IconName;
+  primary?: boolean;
+}) {
+  return (
+    <Link href={href} className="jd-action" data-primary={primary || undefined}>
+      <span className="jd-action__icon" aria-hidden="true">
+        <Icon name={icon} size={20} />
+      </span>
+      <span className="mt-auto">
+        <span className="block text-[15px] font-extrabold leading-tight">{label}</span>
+        {note && <span className="jd-action__note block text-[12px] mt-0.5 leading-snug">{note}</span>}
+      </span>
+    </Link>
+  );
+}
+
+export function StatTile({
+  label,
+  value,
+  note,
+  href,
+  tone,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+  href?: string;
+  tone?: "save" | "warn";
+}) {
+  const valueTone = tone === "save" ? "text-save-700" : tone === "warn" ? "text-warn-600" : "";
+  const body = (
+    <>
+      <span className="jd-stat__label">{label}</span>
+      <span className={`jd-stat__value ${valueTone}`}>{value}</span>
+      {note && <span className="text-[12px] text-ink-500">{note}</span>}
+    </>
+  );
+  return href ? (
+    <Link href={href} className="jd-stat">{body}</Link>
+  ) : (
+    <div className="jd-stat">{body}</div>
+  );
+}
+
+/** Header band for the vendor and ops consoles. */
+export function ConsoleHeader({
+  eyebrow,
+  title,
+  meta,
+  actions,
+}: {
+  eyebrow: string;
+  title: string;
+  meta?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="jd-console-head">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-5 flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="jd-band__kicker">{eyebrow}</p>
+          <h1 className="text-[24px] sm:text-[28px] font-extrabold tracking-tight leading-tight mt-1">{title}</h1>
+          {meta && <div className="text-[13px] jd-band__muted mt-0.5">{meta}</div>}
+        </div>
+        {actions && <div className="flex flex-wrap gap-2 items-center">{actions}</div>}
+      </div>
+    </header>
+  );
+}
+
+/* ------------------------------------------------------------ icons */
+
+export type IconName =
+  | "home" | "explore" | "bookings" | "society" | "profile" | "bell" | "gate" | "plus"
+  | "help" | "chat" | "megaphone" | "wallet" | "wrench" | "shield" | "arrow";
+
+export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
+  const paths: Record<IconName, ReactNode> = {
     home: <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" />,
     explore: (
       <>
@@ -336,11 +525,46 @@ function TabIcon({ name }: { name: "home" | "explore" | "bookings" | "society" |
         <path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" />
       </>
     ),
+    bell: (
+      <>
+        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" />
+        <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+      </>
+    ),
+    gate: (
+      <>
+        <path d="M4 21V8l8-5 8 5v13" />
+        <path d="M9 21v-7h6v7M2 21h20" />
+      </>
+    ),
+    plus: <path d="M12 5v14M5 12h14" />,
+    help: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.4M12 17.2v.1" />
+      </>
+    ),
+    chat: <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-4.9A8 8 0 1 1 21 12z" />,
+    megaphone: (
+      <>
+        <path d="M3 10v4a1 1 0 0 0 1 1h3l6 4V5L7 9H4a1 1 0 0 0-1 1z" />
+        <path d="M17 8.5a5 5 0 0 1 0 7" />
+      </>
+    ),
+    wallet: (
+      <>
+        <rect x="3" y="6" width="18" height="14" rx="2.5" />
+        <path d="M3 10h18M16 15h1.5M7 6V4.5A1.5 1.5 0 0 1 8.5 3h9" />
+      </>
+    ),
+    wrench: <path d="M14.5 6.5a4 4 0 0 0 5 5L12 19a2.1 2.1 0 0 1-3-3l7.5-7.5zM14.5 6.5 17 4a4 4 0 0 1 3 3l-2.5 2.5" />,
+    shield: <path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z" />,
+    arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
   };
   return (
     <svg
-      width="22"
-      height="22"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -348,18 +572,99 @@ function TabIcon({ name }: { name: "home" | "explore" | "bookings" | "society" |
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
+      focusable="false"
     >
       {paths[name]}
     </svg>
   );
 }
 
-export function Phone({ children }: { children: React.ReactNode }) {
+function BrandMark() {
   return (
-    <div className="min-h-screen flex justify-center bg-canvas-alt">
-      <div className="w-full max-w-[460px] bg-canvas min-h-screen flex flex-col border-x border-line">
-        {children}
+    <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="9" fill="#dce99e" />
+      <rect x="9" y="19" width="14" height="5" rx="1.5" fill="#132c24" />
+      <rect x="9" y="12.5" width="14" height="5" rx="1.5" fill="#132c24" opacity=".7" />
+      <rect x="9" y="6" width="14" height="5" rx="1.5" fill="#156348" />
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------- navigation */
+
+type TabKey = "home" | "explore" | "bookings" | "society" | "profile";
+
+/**
+ * Bottom tab bar on phones, a forest side rail from 1024px. Detail screens
+ * pass `mobile={false}` so they keep their own bottom actions on a phone but
+ * still get the rail on a desktop.
+ */
+export function TabBar({
+  active,
+  t = (_k: string, en: string) => en,
+  mobile = true,
+}: {
+  active?: TabKey | "notifications" | "help";
+  t?: (key: string, english: string) => string;
+  mobile?: boolean;
+}) {
+  const items = [
+    { key: "home", href: "/", label: t("nav.home", "Home") },
+    { key: "explore", href: "/explore", label: t("nav.explore", "Explore") },
+    { key: "bookings", href: "/bookings", label: t("nav.bookings", "Bookings") },
+    { key: "society", href: "/society", label: t("nav.society", "Society") },
+    { key: "profile", href: "/profile", label: t("nav.profile", "Profile") },
+  ] as const;
+  const extras = [
+    { key: "notifications", href: "/notifications", label: "Notifications", icon: "bell" },
+    { key: "help", href: "/help", label: "Help", icon: "help" },
+  ] as const;
+  return (
+    <nav aria-label="Main" className="jd-nav" data-mobile={mobile ? undefined : "false"}>
+      <Link href="/" className="jd-nav__brand" aria-label="JODO home">
+        <BrandMark />
+        <span aria-hidden="true">jodo</span>
+      </Link>
+      <div className="jd-nav__list">
+        {items.map((i) => {
+          const on = active === i.key;
+          return (
+            <Link key={i.key} href={i.href} aria-current={on ? "page" : undefined} className="jd-nav__item">
+              <span className="jd-nav__icon">
+                <Icon name={i.key} />
+              </span>
+              {i.label}
+            </Link>
+          );
+        })}
       </div>
+      <div className="jd-nav__extra">
+        {extras.map((i) => (
+          <Link key={i.key} href={i.href} aria-current={active === i.key ? "page" : undefined} className="jd-nav__item">
+            <span className="jd-nav__icon">
+              <Icon name={i.icon} size={20} />
+            </span>
+            {i.label}
+          </Link>
+        ))}
+      </div>
+      <Link href="/create" className="jd-nav__cta">
+        <Icon name="plus" size={18} />
+        {t("feed.startGroup", "Start a group")}
+      </Link>
+    </nav>
+  );
+}
+
+/**
+ * The signed-in frame. Historically a 460px phone mock; now a full-width
+ * column on phones, a centred reading column on tablets and, with a TabBar,
+ * a side-rail layout on desktop. `wide` lifts the column limit for dashboards.
+ */
+export function Phone({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+  return (
+    <div className="jd-app" data-wide={wide || undefined}>
+      <div className="jd-column">{children}</div>
     </div>
   );
 }
@@ -368,15 +673,15 @@ export function NotificationBell({ unread }: { unread: number }) {
   return (
     <Link
       href="/notifications"
-      className="relative w-10 h-10 rounded-full bg-canvas-alt grid place-items-center"
-      aria-label={unread ? `${unread} unread notifications` : "Notifications"}
+      className="jd-icon-btn"
+      aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
     >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M13.7 21a2 2 0 0 1-3.4 0" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <Icon name="bell" size={19} />
       {unread > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 min-w-5 h-5 px-1 rounded-full bg-danger-600 text-white text-[11px] font-bold grid place-items-center tnum">
+        <span
+          aria-hidden="true"
+          className="absolute -top-1 -end-1 min-w-5 h-5 px-1 rounded-full bg-danger-600 text-white text-[11px] font-bold grid place-items-center tnum ring-2 ring-canvas"
+        >
           {unread > 9 ? "9+" : unread}
         </span>
       )}
@@ -387,13 +692,13 @@ export function NotificationBell({ unread }: { unread: number }) {
 export function SlotLoad({ deal }: { deal: DealView }) {
   if (deal.status !== "open") return null;
   return (
-    <div className="card p-4">
-      <p className="eyebrow mb-3">Slots on {formatDate(deal.serviceDate)}</p>
-      <ul className="grid grid-cols-2 gap-2">
+    <section className="card p-4 sm:p-5">
+      <h2 className="jd-section-title mb-3">Slots on {formatDate(deal.serviceDate)}</h2>
+      <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {deal.slotLoad.map((s) => (
           <li
             key={s.slot}
-            className={`rounded-xl px-3 py-2 text-sm ${s.full ? "bg-canvas-alt text-ink-300" : "bg-canvas-alt text-ink-700"}`}
+            className={`rounded-xl px-3 py-2.5 text-sm ${s.full ? "bg-canvas-alt text-ink-500" : "bg-canvas-alt text-ink-700"}`}
           >
             <span className="tnum font-bold">{s.slot}</span>
             <br />
@@ -407,7 +712,7 @@ export function SlotLoad({ deal }: { deal: DealView }) {
         One crew can take {deal.sku.unitsPerSlot} {deal.basisLabel} in a two-hour window — that is what keeps the
         group price honest.
       </p>
-    </div>
+    </section>
   );
 }
 
@@ -419,28 +724,28 @@ export function AppHeader({
 }: {
   title: string;
   subtitle?: string;
-  right?: React.ReactNode;
+  right?: ReactNode;
   /** Where the back chevron goes. Detail screens get one; top-level tabs don't. */
   back?: { href: string; label?: string };
 }) {
   return (
-    <header className="bg-surface/95 backdrop-blur border-b border-line px-4 py-3 flex items-center gap-3 sticky top-0 z-20">
+    <header className="jd-header">
       {back && (
         <Link
           href={back.href}
           aria-label={back.label ?? "Back"}
-          className="-ml-1.5 w-9 h-9 shrink-0 rounded-full grid place-items-center text-ink-700 hover:bg-canvas-alt"
+          className="jd-icon-btn -ms-1"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg className="rtl:-scale-x-100" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </Link>
       )}
       <div className="min-w-0 flex-1">
-        <h1 className="text-[19px] font-extrabold leading-tight truncate">{title}</h1>
+        <h1 className="jd-header__title truncate">{title}</h1>
         {subtitle && <p className="text-[13px] text-ink-500 truncate">{subtitle}</p>}
       </div>
-      {right && <div className="shrink-0">{right}</div>}
+      {right && <div className="shrink-0 flex items-center gap-2">{right}</div>}
     </header>
   );
 }

@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { AppHeader, Phone } from "@/components/ui";
+import { AppHeader, Phone, TabBar } from "@/components/ui";
 import { getMe } from "@/lib/session";
 import { listSocietyGuards } from "@/lib/society-access";
 import { AddGuardForm, GuardToggleForm } from "./forms";
@@ -10,7 +10,7 @@ export default async function GuardAccessPage() {
   const me = await getMe();
   if (!me) redirect("/login");
   if (me.user.role !== "secretary" || me.residency?.status !== "verified") notFound();
-  const guards = listSocietyGuards(me);
+  const guards = await listSocietyGuards(me);
   return (
     <Phone>
       <AppHeader title="Guard access" subtitle={me.residency.societyName} back={{ href: "/society" }} />
@@ -34,6 +34,7 @@ export default async function GuardAccessPage() {
           ))}
         </section>
       </div>
+      <TabBar active="society" mobile={false} />
     </Phone>
   );
 }
