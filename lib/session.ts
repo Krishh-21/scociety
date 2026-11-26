@@ -1,27 +1,44 @@
+import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
+import { isDemoMode } from "./auth-mode";
+import { dealReturnHref } from "./deal-return";
 import { all, id, inTransaction, one, run } from "./db";
 import type { Residency, User } from "./types";
 
-const COOKIE = "jodo_session";
+function sessionCookieName() {
+  if (isDemoMode()) return "jodo_demo_session";
+  return process.env.NODE_ENV === "production" ? "__Host-jodo_session" : "jodo_live_session";
+}
+
+function sessionKey(token: string | undefined) {
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
+  const mode = isDemoMode() ? "demo:" : "sms:";
+  return mode + createHash("sha256").update(token).digest("hex");
+}
 
 export type Me = {
   user: User;
   residency: (Residency & { societyName: string }) | null;
 };
 
-const SESSION_DAYS = 60;
+const SESSION_DAYS = 30;
 
 export async function createSession(userId: string) {
-  const token = id("sess");
-  const now = Date.now();
-  await run(
-    "INSERT INTO session (token,userId,createdAt,expiresAt) VALUES (?,?,?,?)",
-    token, userId, new Date(now).toISOString(),
-    new Date(now + SESSION_DAYS * 86_400_000).toISOString(),
-  );
-  await run("DELETE FROM session WHERE expiresAt IS NOT NULL AND expiresAt < ?", new Date(now).toISOString());
   const jar = await cookies();
-  jar.set(COOKIE, token, {
+  const name = sessionCookieName();
+  const previous = sessionKey(jar.get(name)?.value);
+  const token = randomBytes(32).toString("base64url");
+  const now = Date.now();
+  await inTransaction(async () => {
+    if (previous) await run("DELETE FROM session WHERE token = ?", previous);
+    await run(
+      "INSERT INTO session (token,userId,createdAt,expiresAt) VALUES (?,?,?,?)",
+      sessionKey(token), userId, new Date(now).toISOString(),
+      new Date(now + SESSION_DAYS * 86_400_000).toISOString(),
+    );
+    await run("DELETE FROM session WHERE expiresAt < ?", new Date(now).toISOString());
+  });
+  jar.set(name, token, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
@@ -31,49 +48,57 @@ export async function createSession(userId: string) {
   return token;
 }
 
-const otpAttempts = new Map<string, { n: number; since: number }>();
-const OTP_WINDOW_MS = 10 * 60_000;
-const OTP_MAX_ATTEMPTS = 5;
-
-/** Crude but real: five wrong codes per phone per ten minutes. */
-export function otpAttemptAllowed(phone: string): boolean {
-  const now = Date.now();
-  const rec = otpAttempts.get(phone);
-  if (!rec || now - rec.since > OTP_WINDOW_MS) {
-    otpAttempts.set(phone, { n: 1, since: now });
-    return true;
+export async function signInDestination(user: Pick<User, "id" | "role">, next?: string) {
+  if (user.role === "guard") {
+    const active = await one("SELECT userId FROM guard_assignment WHERE userId = ? AND isActive = 1", user.id);
+    return active ? "/society/visitors" : null;
   }
-  rec.n += 1;
-  return rec.n <= OTP_MAX_ATTEMPTS;
-}
-
-export function otpAttemptsReset(phone: string) {
-  otpAttempts.delete(phone);
+  if (user.role === "vendor") return "/vendor";
+  if (user.role === "ops") return "/ops";
+  const verified = await one("SELECT id FROM residency WHERE userId = ? AND status = 'verified'", user.id);
+  return verified ? next ?? "/" : dealReturnHref("/onboarding", next);
 }
 
 export async function destroySession() {
   const jar = await cookies();
-  const token = jar.get(COOKIE)?.value;
+  const name = sessionCookieName();
+  const token = sessionKey(jar.get(name)?.value);
   if (token) await run("DELETE FROM session WHERE token = ?", token);
-  jar.delete(COOKIE);
+  jar.set(name, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 0,
+  });
 }
 
 export async function getMe(): Promise<Me | null> {
   const jar = await cookies();
-  const token = jar.get(COOKIE)?.value;
+  const token = sessionKey(jar.get(sessionCookieName())?.value);
   if (!token) return null;
-  const row = await one<User & { token: string }>(
-    `SELECT u.* FROM session s JOIN user u ON u.id = s.userId
-     WHERE s.token = ? AND (s.expiresAt IS NULL OR s.expiresAt > ?)`,
+  const row = await one<User & {
+    residencyId: string; societyId: string; societyName: string;
+    flat: string; residencyType: Residency["type"]; residencyStatus: Residency["status"];
+  }>(
+    `SELECT u.*, r.id AS residencyId, r.societyId, sc.name AS societyName,
+            r.flat, r.type AS residencyType, r.status AS residencyStatus
+     FROM session s JOIN user u ON u.id = s.userId
+     LEFT JOIN residency r ON r.id = (
+       SELECT candidate.id FROM residency candidate WHERE candidate.userId = u.id
+       ORDER BY CASE candidate.status WHEN 'verified' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
+                candidate.createdAt DESC, candidate.id LIMIT 1
+     )
+     LEFT JOIN society sc ON sc.id = r.societyId
+     WHERE s.token = ? AND s.expiresAt > ?`,
     token, new Date().toISOString(),
   );
   if (!row) return null;
-  const residency = await one<Residency & { societyName: string }>(
-    `SELECT r.*, s.name AS societyName FROM residency r JOIN society s ON s.id = r.societyId
-     WHERE r.userId = ? ORDER BY r.createdAt DESC LIMIT 1`,
-    row.id,
-  );
-  return { user: row, residency };
+  const { residencyId, societyId, societyName, flat, residencyType, residencyStatus, ...user } = row;
+  const residency = residencyId && societyName
+    ? { id: residencyId, userId: user.id, societyId, societyName, flat, type: residencyType, status: residencyStatus }
+    : null;
+  return { user, residency };
 }
 
 export async function requireMe(): Promise<Me> {
@@ -105,14 +130,10 @@ export function normaliseFlat(raw: string): string | null {
   return m ? `${m[1]}-${m[2]}` : null;
 }
 
-/**
- * Puts a user in a flat. A flat already held by a verified neighbour can't be
- * claimed by somebody else — otherwise anyone could join groups, read
- * neighbours' names and pay as "A-402".
- */
+/** Submits a request for committee review. Demo claims are verified immediately. */
 export async function claimResidency(args: {
   userId: string; name: string; societyId: string; flat: string; type: "owner" | "tenant";
-}) {
+}): Promise<{ id: string; flat: string; societyName: string; status: "pending" | "verified" }> {
   const name = args.name.trim().replace(/\s+/g, " ");
   if (name.length < 2) throw new ResidencyError("Tell your neighbours your name.");
   if (name.length > 60) throw new ResidencyError("That name is a little long.");
@@ -123,35 +144,52 @@ export async function claimResidency(args: {
   const flat = normaliseFlat(args.flat);
   if (!flat) throw new ResidencyError("Flat should look like A-402.");
 
+  const status = isDemoMode() ? "verified" : "pending";
   return inTransaction(async () => {
-    const verified = await one<{ id: string; societyId: string; flat: string }>(
-      "SELECT id, societyId, flat FROM residency WHERE userId = ? AND status = 'verified' ORDER BY createdAt DESC, id LIMIT 1",
+    // A guard enrollment can supersede the resident session that started this request.
+    const user = await one<Pick<User, "role">>("SELECT role FROM user WHERE id = ?", args.userId);
+    if (user?.role !== "resident" && user?.role !== "secretary") {
+      throw new ResidencyError("Sign in with a resident account to request flat verification.");
+    }
+    const current = await one<Pick<Residency, "id" | "societyId" | "flat" | "status">>(
+      `SELECT id, societyId, flat, status FROM residency WHERE userId = ? AND status IN ('verified', 'pending')
+       ORDER BY CASE status WHEN 'verified' THEN 0 ELSE 1 END, createdAt DESC, id LIMIT 1`,
       args.userId,
     );
-    if (verified && (verified.societyId !== society.id || verified.flat !== flat)) {
-      throw new ResidencyError("Your flat is already verified. Contact your society committee to change it.");
+    if (current) {
+      if (current.societyId !== society.id || current.flat !== flat) {
+        throw new ResidencyError(current.status === "verified"
+          ? "Your flat is already verified. Contact your society committee to change it."
+          : "You already have a flat request waiting for review. Contact your society committee to make a change.");
+      }
+      if (current.status === "verified") {
+        await run("UPDATE user SET name = ? WHERE id = ?", name, args.userId);
+        await run("UPDATE residency SET type = ? WHERE id = ?", args.type, current.id);
+        return { id: current.id, flat, societyName: society.name, status: "verified" };
+      }
+      if (status === "pending") return { id: current.id, flat, societyName: society.name, status };
     }
-    const taken = await one<{ userId: string }>(
-      "SELECT userId FROM residency WHERE societyId = ? AND flat = ? AND status = 'verified' AND userId <> ?",
-      society.id, flat, args.userId,
-    );
-    if (taken) {
-      throw new ResidencyError(
-        `${flat} is already verified in ${society.name}. If you live there, ask your society secretary for help.`,
+
+    if (status === "verified") {
+      const taken = await one(
+        "SELECT id FROM residency WHERE societyId = ? AND flat = ? AND status = 'verified'",
+        society.id, flat,
       );
+      if (taken) {
+        throw new ResidencyError(
+          `${flat} is already verified in ${society.name}. If you live there, ask your society secretary for help.`,
+        );
+      }
     }
 
     await run("UPDATE user SET name = ? WHERE id = ?", name, args.userId);
-    if (verified) {
-      await run("UPDATE residency SET type = ? WHERE id = ?", args.type, verified.id);
-    } else {
-      await run("DELETE FROM residency WHERE userId = ?", args.userId);
-      await run(
-        "INSERT INTO residency (id,userId,societyId,flat,type,status,verifiedVia,createdAt) VALUES (?,?,?,?,?,?,?,?)",
-        id("res"), args.userId, society.id, flat, args.type, "verified", "neighbour_vouch", new Date().toISOString(),
-      );
-    }
-    return { flat, societyName: society.name };
+    const requestId = id("res");
+    await run("DELETE FROM residency WHERE userId = ? AND status IN ('rejected', 'pending')", args.userId);
+    await run(
+      "INSERT INTO residency (id,userId,societyId,flat,type,status,verifiedVia,createdAt) VALUES (?,?,?,?,?,?,?,?)",
+      requestId, args.userId, society.id, flat, args.type, status, status === "verified" ? "demo" : null, new Date().toISOString(),
+    );
+    return { id: requestId, flat, societyName: society.name, status };
   });
 }
 

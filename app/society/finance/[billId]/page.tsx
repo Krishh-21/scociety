@@ -45,14 +45,15 @@ export default async function BillPage({ params, searchParams }: {
           {bill.payment && (
             <Link href={`${FINANCE_HOME}/${bill.id}/receipt${view === "mine" ? "?view=mine" : ""}`} className="btn btn-save mt-4 w-full">View receipt</Link>
           )}
+          {bill.paidOn && !bill.payment && <p className="mt-4 text-sm text-ink-700">Contact your society committee to request a receipt.</p>}
         </section>
 
-        {!bill.payment && (canManage ? (
+        {!bill.paidOn && (canManage ? (
           <>
             <section className="card p-4">
               <h2 className="font-extrabold">Record payment</h2>
               <p className="mb-3 mt-1 text-[13px] text-ink-500">Enter the reference after receiving the full payment outside the app.</p>
-              <RecordDuesForm billId={bill.id} today={today} />
+              <RecordDuesForm billId={bill.id} today={today} receiptRecipient={bill.receiptRecipient} />
             </section>
             <section className="card p-4">
               <h2 className="font-extrabold">In-app reminder</h2>
@@ -63,10 +64,10 @@ export default async function BillPage({ params, searchParams }: {
             </section>
           </>
         ) : (
-          <p className="card p-4 text-sm text-ink-700">Contact your society committee for payment instructions. Your receipt will appear once the committee records payment.</p>
+          <p className="card p-4 text-sm text-ink-700">Contact your society committee for payment instructions or to request a receipt.</p>
         ))}
       </main>
-      <TabBar active="society" mobile={false} />
+      <TabBar active="finance" mobile={false} />
     </Phone>
   );
 }

@@ -4,14 +4,15 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { Pool, types, type PoolClient } from "pg";
-import { POSTGRES_SCHEMA, postgresConnection, postgresSql } from "./postgres-sql";
+import { isDemoMode } from "./auth-mode";
+import { postgresSchema, postgresConnection, postgresSql } from "./postgres-sql";
 import { SOCIETY_COMPLAINTS_SCHEMA } from "./society-complaints-schema";
 import { SOCIETY_COMMUNITY_SCHEMA } from "./society-community-schema";
 import { SOCIETY_FINANCE_SCHEMA } from "./society-finance-schema";
 import { SOCIETY_GATE_SCHEMA } from "./society-gate-schema";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
-const DB_PATH = process.env.JODO_DB ?? path.join(DATA_DIR, "jodo.db");
+const DB_PATH = process.env.JODO_DB ?? path.join(DATA_DIR, isDemoMode() ? "jodo.db" : "jodo-live.db");
 const SQLITE_SCHEMA = () => SCHEMA + SOCIETY_COMPLAINTS_SCHEMA + SOCIETY_COMMUNITY_SCHEMA + SOCIETY_FINANCE_SCHEMA + SOCIETY_GATE_SCHEMA;
 
 export function usesPostgres() {
@@ -108,9 +109,29 @@ CREATE TABLE IF NOT EXISTS session (
   expiresAt TEXT
 );
 
+CREATE TABLE IF NOT EXISTS google_identity (
+  subject TEXT PRIMARY KEY,
+  userId TEXT NOT NULL UNIQUE REFERENCES user(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS google_link (
+  id TEXT PRIMARY KEY, tokenHash TEXT NOT NULL UNIQUE,
+  subject TEXT NOT NULL, email TEXT NOT NULL, expiresAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS email_identity (
+  subject TEXT PRIMARY KEY,
+  userId TEXT NOT NULL UNIQUE REFERENCES user(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS email_link (
+  id TEXT PRIMARY KEY, tokenHash TEXT NOT NULL UNIQUE,
+  subject TEXT NOT NULL, email TEXT NOT NULL, expiresAt TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS notification (
   id TEXT PRIMARY KEY, userId TEXT NOT NULL, dealId TEXT, type TEXT NOT NULL,
-  title TEXT NOT NULL, body TEXT NOT NULL, createdAt TEXT NOT NULL, readAt TEXT, gateVisitId TEXT
+  title TEXT NOT NULL, body TEXT NOT NULL, createdAt TEXT NOT NULL, readAt TEXT, gateVisitId TEXT, residencyId TEXT
 );
 
 CREATE TABLE IF NOT EXISTS payment (
@@ -149,6 +170,14 @@ CREATE TABLE IF NOT EXISTS lead (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notification_user ON notification(userId, readAt);
+CREATE INDEX IF NOT EXISTS idx_session_expiry ON session(expiresAt);
+CREATE INDEX IF NOT EXISTS idx_google_link_expiry ON google_link(expiresAt);
+CREATE INDEX IF NOT EXISTS idx_email_link_expiry ON email_link(expiresAt);
+CREATE INDEX IF NOT EXISTS idx_residency_user ON residency(userId);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_residency_verified_flat
+  ON residency(societyId, flat) WHERE status = 'verified';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_residency_current_user
+  ON residency(userId) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_lead_kind ON lead(kind, createdAt);
 CREATE INDEX IF NOT EXISTS idx_payment_member ON payment(memberId);
 CREATE INDEX IF NOT EXISTS idx_dispute_status ON dispute(status);
@@ -164,6 +193,9 @@ declare global {
 
 /** Columns added after the first release, so an existing .data/jodo.db keeps working. */
 const MIGRATIONS: [table: string, column: string, ddl: string][] = [
+  ["gate_pass", "revokedAt", "ALTER TABLE gate_pass ADD COLUMN revokedAt TEXT"],
+  ["gate_visit", "cancelledAt", "ALTER TABLE gate_visit ADD COLUMN cancelledAt TEXT"],
+  ["gate_visit", "cancelledBy", "ALTER TABLE gate_visit ADD COLUMN cancelledBy TEXT REFERENCES user(id)"],
   ["guard_assignment", "isActive", "ALTER TABLE guard_assignment ADD COLUMN isActive INTEGER NOT NULL DEFAULT 1"],
   ["deal", "floorPricePaise", "ALTER TABLE deal ADD COLUMN floorPricePaise INTEGER"],
   ["sku", "ladderBasis", "ALTER TABLE sku ADD COLUMN ladderBasis TEXT NOT NULL DEFAULT 'flats'"],
@@ -174,6 +206,7 @@ const MIGRATIONS: [table: string, column: string, ddl: string][] = [
   ["user", "lang", "ALTER TABLE user ADD COLUMN lang TEXT NOT NULL DEFAULT 'en'"],
   ["vendor", "skuIds", "ALTER TABLE vendor ADD COLUMN skuIds TEXT NOT NULL DEFAULT '[]'"],
   ["notification", "gateVisitId", "ALTER TABLE notification ADD COLUMN gateVisitId TEXT"],
+  ["notification", "residencyId", "ALTER TABLE notification ADD COLUMN residencyId TEXT"],
 ];
 
 /** What each seeded vendor offers — also backfills a database created before skuIds existed. */
@@ -208,16 +241,16 @@ export function getDb(): DatabaseSync {
   if (usesPostgres() || process.env.VERCEL === "1") throw new Error("The SQLite connection is available only in local mode.");
   if (!globalThis.__jodoDb) {
     globalThis.__jodoDb = open();
-    seedIfEmpty(globalThis.__jodoDb);
+    if (isDemoMode()) seedIfEmpty(globalThis.__jodoDb);
   }
   return globalThis.__jodoDb;
 }
 
-/** Used only by the explicit hosted database initializer. */
-export function createDemoDatabase() {
+/** Used only by the hosted initializer, with no data in the resident schema. */
+export function createSchemaDatabase(withDemoData = false) {
   const db = new DatabaseSync(":memory:");
   db.exec(SQLITE_SCHEMA());
-  seed(db);
+  if (withDemoData) seed(db);
   return db;
 }
 
@@ -258,7 +291,7 @@ async function withPostgres<T>(work: (client: PoolClient) => Promise<T>): Promis
   if (existing && "postgres" in existing) return work(existing.postgres);
   const client = await pool().connect();
   try {
-    await client.query(`BEGIN; SET LOCAL search_path TO ${POSTGRES_SCHEMA}, pg_catalog`);
+    await client.query(`BEGIN; SET LOCAL search_path TO ${postgresSchema()}, pg_catalog`);
     const result = await work(client);
     await client.query("COMMIT");
     return result;
@@ -402,7 +435,7 @@ export function resetAllData() {
     "society_finance_payments", "society_finance_bill_items", "society_finance_bills", "society_finance_expense_receipts", "society_finance_expenses",
     "society_finance_bank_balances",
     "analytics_event", "notification", "payment", "revisit", "dispute", "job", "deal_event", "comment",
-    "deal_member", "deal", "residency", "user", "sku", "vendor", "society",
+    "deal_member", "deal", "google_link", "google_identity", "email_link", "email_identity", "residency", "user", "sku", "vendor", "society",
   ];
   // Sessions are kept: the seeded accounts come back with the same ids, so whoever
   // pressed reset stays signed in.

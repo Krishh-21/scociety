@@ -9,7 +9,7 @@ export const FINANCE_HOME = "/society/finance";
 export async function financePageActor(committeeOnly = false) {
   const me = await getMe();
   if (!me) redirect("/login");
-  if ((me.user.role === "resident" || me.user.role === "secretary") && !me.residency) redirect("/onboarding");
+  if ((me.user.role === "resident" || me.user.role === "secretary") && me.residency?.status !== "verified") redirect("/onboarding");
   try {
     const residency = requireSocietyMember(me);
     const canManage = me.user.role === "secretary";

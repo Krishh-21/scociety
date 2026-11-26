@@ -1,4 +1,5 @@
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { isDemoMode } from "@/lib/auth-mode";
 import { listSkus, listVendors } from "@/lib/deals";
 import { getMe } from "@/lib/session";
 import { AppHeader, Phone, TabBar } from "@/components/ui";
@@ -7,9 +8,10 @@ import CreateForm from "./CreateForm";
 export const dynamic = "force-dynamic";
 
 export default async function CreatePage({ searchParams }: { searchParams: Promise<{ sku?: string }> }) {
+  if (!isDemoMode()) notFound();
   const me = await getMe();
   if (!me) redirect("/login");
-  if (!me.residency) redirect("/onboarding");
+  if (me.residency?.status !== "verified") redirect("/onboarding");
   const [{ sku }, skus, vendors] = await Promise.all([searchParams, listSkus(), listVendors()]);
 
   return (
@@ -18,7 +20,7 @@ export default async function CreatePage({ searchParams }: { searchParams: Promi
       <div className="flex-1 px-4 py-4 sm:px-6 lg:px-8">
         <CreateForm skus={skus} vendors={vendors} preselect={sku} />
       </div>
-      <TabBar active="home" mobile={false} />
+      <TabBar active="explore" mobile={false} />
     </Phone>
   );
 }

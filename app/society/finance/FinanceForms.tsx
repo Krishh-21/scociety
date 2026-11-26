@@ -1,10 +1,11 @@
 "use client";
 
-import { startTransition, useActionState, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useRef, useState, type ComponentProps, type ReactNode } from "react";
 import {
   addExpenseAction, issueDuesAction, recordDuesAction, remindDuesAction, reportBalanceAction, settleExpenseAction,
   type FinanceActionState,
 } from "./actions";
+import { useSocietyForm } from "../useSocietyForm";
 
 type Action = (state: FinanceActionState, form: FormData) => Promise<FinanceActionState>;
 const control = "card min-w-0 w-full px-3 py-2.5 text-base font-normal text-ink-900";
@@ -20,24 +21,10 @@ function Input({ label, ...props }: ComponentProps<"input"> & { label: string })
 function FinanceForm({ action, submit, children, quiet = false }: {
   action: Action; submit: string; children?: ReactNode; quiet?: boolean;
 }) {
-  const form = useRef<HTMLFormElement>(null);
-  const [state, submitAction, pending] = useActionState(action, {});
-  useEffect(() => {
-    if (state.ok) form.current?.reset();
-  }, [state]);
+  const { state, pending, formProps } = useSocietyForm(action);
 
   return (
-    <form
-      ref={form}
-      action={submitAction}
-      onSubmit={(event) => {
-        event.preventDefault();
-        const data = new FormData(event.currentTarget);
-        startTransition(() => submitAction(data));
-      }}
-      aria-busy={pending}
-      className="flex flex-col gap-3"
-    >
+    <form {...formProps} className="flex flex-col gap-3">
       {children}
       <button className={`btn ${quiet ? "btn-quiet" : "btn-primary"} w-full`} disabled={pending}>
         {pending ? "Saving…" : submit}
@@ -92,7 +79,9 @@ export function IssueDuesForm({ today, maxItems }: { today: string; maxItems: nu
   );
 }
 
-export function RecordDuesForm({ billId, today }: { billId: string; today: string }) {
+export function RecordDuesForm({ billId, today, receiptRecipient }: {
+  billId: string; today: string; receiptRecipient: { id: string; name: string } | null;
+}) {
   return (
     <FinanceForm action={recordDuesAction} submit="Record full payment">
       <input type="hidden" name="billId" value={billId} />
@@ -106,6 +95,15 @@ export function RecordDuesForm({ billId, today }: { billId: string; today: strin
       </Field>
       <Input label="Payment reference" name="reference" maxLength={100} placeholder="UTR or receipt number" required />
       <Input label="Payment date" type="date" name="paidOn" defaultValue={today} max={today} required />
+      {receiptRecipient && (
+        <label className="flex items-start gap-2 text-sm text-ink-700">
+          <input className="mt-1" type="checkbox" name="payerResidencyId" value={receiptRecipient.id} />
+          <span>
+            <strong className="block">Share receipt with {receiptRecipient.name}</strong>
+            Select this if they made the payment.
+          </span>
+        </label>
+      )}
     </FinanceForm>
   );
 }

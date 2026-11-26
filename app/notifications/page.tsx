@@ -8,6 +8,7 @@ import { AppHeader, Icon, Phone, TabBar } from "@/components/ui";
 import AutoRefresh from "@/components/AutoRefresh";
 import { gateKindLabels, residentVisits, type GateStatus } from "@/lib/society-gate";
 import { VisitDecisionForm } from "@/app/society/visitors/VisitorForms";
+import { notificationHref, SUCCESS_UPDATES } from "./links";
 
 export const dynamic = "force-dynamic";
 
@@ -34,35 +35,23 @@ const ICONS: Record<string, string> = {
   gate_request: "→",
 };
 
-const SOCIETY_UPDATES: Record<string, string> = {
-  society_complaint: "/society/complaints",
-  society_notice: "/society/community",
-  society_meeting: "/society/community",
-  society_poll: "/society/community",
-  society_dues_reminder: "/society/finance",
-  gate_request: "/society/visitors",
-};
-
-const BOOKING_UPDATES = new Set([
-  "locked", "service_day", "job_done", "dispute_resolved",
-  "revisit_requested", "revisit_scheduled", "revisit_started", "revisit_completed",
-]);
-
-const SUCCESS_UPDATES = new Set(["price_drop", "locked", "job_done", "revisit_completed"]);
-
 const TICKET_STATUS: Record<Exclude<GateStatus, "pending">, string> = {
   approved: "Entry approved. The guard can check the visitor in.",
   denied: "Entry denied.",
   checked_in: "Visitor checked in.",
   checked_out: "Visitor checked out.",
   expired: "Ticket expired.",
+  cancelled: "The guard closed this entry request.",
+  host_unavailable: "The host is no longer verified for this flat.",
 };
 
 export default async function NotificationsPage() {
   const me = await getMe();
   if (!me) redirect("/login");
+  const member = me.user.role === "resident" || me.user.role === "secretary";
+  if (member && me.residency?.status !== "verified") redirect("/onboarding");
   const [items, unread] = await Promise.all([listNotifications(me.user.id), unreadCount(me.user.id)]);
-  const canRespond = (me.user.role === "resident" || me.user.role === "secretary") && me.residency?.status === "verified";
+  const canRespond = member && me.residency?.status === "verified";
   const residentTickets = canRespond && items.some((item) => item.gateVisitId) ? await residentVisits(me) : [];
   const visits = new Map(residentTickets.map((visit) => [visit.id, visit]));
 
@@ -168,9 +157,7 @@ export default async function NotificationsPage() {
               {unreadDot}
             </>
           );
-          const href = n.dealId
-            ? BOOKING_UPDATES.has(n.type) ? `/bookings#booking-${n.dealId}` : `/deal/${n.dealId}`
-            : SOCIETY_UPDATES[n.type];
+          const href = notificationHref(n);
           return href ? (
             <Link key={n.id} href={href} className="card jd-lift p-3.5 flex gap-3 items-start">
               {body}
@@ -183,7 +170,7 @@ export default async function NotificationsPage() {
         })}
         <div className="h-4" />
       </div>
-      <TabBar active="notifications" mobile={false} />
+      <TabBar active="notifications" mobile={false} context={me.residency ? { society: me.residency.societyName, flat: me.residency.flat } : undefined} />
     </Phone>
   );
 }

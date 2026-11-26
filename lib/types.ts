@@ -59,7 +59,7 @@ export type Residency = {
   societyId: string;
   flat: string;
   type: "owner" | "tenant";
-  status: "pending" | "verified";
+  status: "pending" | "verified" | "rejected" | "revoked";
 };
 
 export type Sku = {

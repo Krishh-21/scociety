@@ -1,16 +1,17 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { isDemoMode } from "@/lib/auth-mode";
 import { openDisputes, opsBoard, recentEvents, revisitsForOps } from "@/lib/deals";
 import { formatRevisitDate } from "@/lib/revisits";
 import { funnel } from "@/lib/analytics";
 import { countdown, formatDate, rupees } from "@/lib/pricing";
-import { getMe } from "@/lib/session";
+import { getMe, type Me } from "@/lib/session";
 import { can } from "@/lib/authz";
 import ConsoleGate from "@/components/ConsoleGate";
 import {
   ApproveDealForm, LeadStatusForm, OpsDealActions, ResetDemoButton, ResolveDisputeForm, SimulateJoins,
 } from "@/components/forms";
-import { listLeads } from "@/lib/leads";
+import { listLeads, type Lead } from "@/lib/leads";
 import { timeAgo } from "@/lib/pricing";
 import { ConsoleHeader, StatTile, StatusPill } from "@/components/ui";
 import { signOut } from "@/app/actions";
@@ -27,12 +28,49 @@ const revisitStatusLabels = {
 export default async function OpsPage() {
   const me = await getMe();
   if (!me) redirect("/login");
+  const demoMode = isDemoMode();
   if (!(await can(me, { kind: "console.ops" }))) {
+    if (!demoMode) notFound();
     return <ConsoleGate console="ops" phone="9000000099" you={me.user.name} />;
   }
+  const leads = await listLeads(30);
+
+  return (
+    <main className="min-h-screen bg-canvas">
+      <ConsoleHeader
+        eyebrow="JODO ops console"
+        title={demoMode ? "Deals board" : "Website sign-ups"}
+        actions={
+          <>
+            <Link href="/" className="btn jd-btn-ghost-light min-h-10 text-[13px]">
+              Resident app
+            </Link>
+            {demoMode && (
+              <Link href="/vendor" className="btn jd-btn-ghost-light min-h-10 text-[13px]">
+                Vendor console
+              </Link>
+            )}
+            <form action={signOut}>
+              <button className="btn jd-btn-ghost-light min-h-10 text-[13px]">Sign out</button>
+            </form>
+          </>
+        }
+      />
+      {demoMode ? (
+        <DemoOpsBoard me={me} leads={leads} />
+      ) : (
+        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6">
+          <WebsiteLeads leads={leads} />
+        </div>
+      )}
+    </main>
+  );
+}
+
+async function DemoOpsBoard({ me, leads }: { me: Me; leads: Lead[] }) {
   const { deals, atRisk, pending, gmvPaise, commissionPaise, refundsPaise, fillRate } = await opsBoard();
-  const [disputes, allRevisits, f, events, leads, demo] = await Promise.all([
-    openDisputes(), revisitsForOps(), funnel(), recentEvents(15), listLeads(30), can(me, { kind: "demo.reset" }),
+  const [disputes, allRevisits, f, events, demo] = await Promise.all([
+    openDisputes(), revisitsForOps(), funnel(), recentEvents(15), can(me, { kind: "demo.reset" }),
   ]);
   const openIssues = disputes.filter((d) => d.status === "open");
   const revisits = allRevisits.filter((visit) => visit.status !== "completed");
@@ -45,25 +83,6 @@ export default async function OpsPage() {
   })();
 
   return (
-    <main className="min-h-screen bg-canvas">
-      <ConsoleHeader
-        eyebrow="JODO ops console"
-        title="Deals board"
-        actions={
-          <>
-            <Link href="/" className="btn jd-btn-ghost-light min-h-10 text-[13px]">
-              Resident app
-            </Link>
-            <Link href="/vendor" className="btn jd-btn-ghost-light min-h-10 text-[13px]">
-              Vendor console
-            </Link>
-            <form action={signOut}>
-              <button className="btn jd-btn-ghost-light min-h-10 text-[13px]">Sign out</button>
-            </form>
-          </>
-        }
-      />
-
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
         <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
@@ -241,63 +260,7 @@ export default async function OpsPage() {
           </div>
         </section>
 
-        <section className="card p-4">
-          <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
-            <h2 className="font-extrabold">Sign-ups from the website</h2>
-            <p className="text-[12px] text-ink-500">
-              {leads.filter((l) => l.kind === "society").length} societies ·{" "}
-              {leads.filter((l) => l.kind === "vendor").length} vendors
-            </p>
-          </div>
-          {leads.length === 0 ? (
-            <p className="text-sm text-ink-500">
-              Nothing yet. Requests from “Bring JODO to your society” and the partner form land here.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[640px]">
-                <thead>
-                  <tr className="text-left text-[12px] text-ink-500">
-                    <th className="py-1 font-semibold">Kind</th>
-                    <th className="font-semibold">Who</th>
-                    <th className="font-semibold">Society / business</th>
-                    <th className="font-semibold">Detail</th>
-                    <th className="font-semibold">When</th>
-                    <th className="font-semibold">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leads.map((l) => (
-                    <tr key={l.id} className="border-t border-line align-top">
-                      <td className="py-2">
-                        <span className={`pill ${l.kind === "society" ? "bg-brand-50 text-brand-700" : "bg-save-50 text-save-700"}`}>
-                          {l.kind}
-                        </span>
-                      </td>
-                      <td className="py-2">
-                        <p className="font-bold">{l.name}</p>
-                        <p className="text-[12px] text-ink-500 tnum">{l.phone}</p>
-                      </td>
-                      <td className="py-2">
-                        {l.org}
-                        <p className="text-[12px] text-ink-500">{l.city}</p>
-                      </td>
-                      <td className="py-2 text-[12px] text-ink-700">
-                        {l.kind === "society"
-                          ? `${String(l.detail.role ?? "resident")}${l.detail.flats ? ` · ${l.detail.flats} flats` : ""}`
-                          : `${(l.detail.services as string[] | undefined)?.join(", ") ?? ""}${l.detail.crew ? ` · crew ${l.detail.crew}` : ""}`}
-                      </td>
-                      <td className="py-2 text-[12px] text-ink-500 whitespace-nowrap">{timeAgo(l.createdAt)}</td>
-                      <td className="py-2">
-                        <LeadStatusForm leadId={l.id} status={l.status} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        <WebsiteLeads leads={leads} />
 
         <section className="card p-4">
           <h2 className="font-extrabold mb-2">Audit trail</h2>
@@ -347,6 +310,67 @@ export default async function OpsPage() {
         )}
         <div className="h-6" />
       </div>
-    </main>
+  );
+}
+
+function WebsiteLeads({ leads }: { leads: Lead[] }) {
+  return (
+    <section className="card p-4">
+      <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
+        <h2 className="font-extrabold">Sign-ups from the website</h2>
+        <p className="text-[12px] text-ink-500">
+          {leads.filter((l) => l.kind === "society").length} societies ·{" "}
+          {leads.filter((l) => l.kind === "vendor").length} vendors
+        </p>
+      </div>
+      {leads.length === 0 ? (
+        <p className="text-sm text-ink-500">
+          Nothing yet. Requests from “Bring JODO to your society” and the partner form land here.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[640px]">
+            <thead>
+              <tr className="text-left text-[12px] text-ink-500">
+                <th className="py-1 font-semibold">Kind</th>
+                <th className="font-semibold">Who</th>
+                <th className="font-semibold">Society / business</th>
+                <th className="font-semibold">Detail</th>
+                <th className="font-semibold">When</th>
+                <th className="font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {leads.map((l) => (
+                <tr key={l.id} className="border-t border-line align-top">
+                  <td className="py-2">
+                    <span className={`pill ${l.kind === "society" ? "bg-brand-50 text-brand-700" : "bg-save-50 text-save-700"}`}>
+                      {l.kind}
+                    </span>
+                  </td>
+                  <td className="py-2">
+                    <p className="font-bold">{l.name}</p>
+                    <p className="text-[12px] text-ink-500 tnum">{l.phone}</p>
+                  </td>
+                  <td className="py-2">
+                    {l.org}
+                    <p className="text-[12px] text-ink-500">{l.city}</p>
+                  </td>
+                  <td className="py-2 text-[12px] text-ink-700">
+                    {l.kind === "society"
+                      ? `${String(l.detail.role ?? "resident")}${l.detail.flats ? ` · ${l.detail.flats} flats` : ""}`
+                      : `${(l.detail.services as string[] | undefined)?.join(", ") ?? ""}${l.detail.crew ? ` · crew ${l.detail.crew}` : ""}`}
+                  </td>
+                  <td className="py-2 text-[12px] text-ink-500 whitespace-nowrap">{timeAgo(l.createdAt)}</td>
+                  <td className="py-2">
+                    <LeadStatusForm leadId={l.id} status={l.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }

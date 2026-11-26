@@ -1,147 +1,334 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState } from "react";
-import { Logo } from "@/components/marketing";
-import { verifyOtp, type ActionState } from "@/app/actions";
-import "@/components/app-shell.css";
+import Script from "next/script";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { sendEmailSignInCode, sendSignInCode, verifyEmailSignInCode, verifyOtp } from "@/app/actions";
+import { AuthHeading, AuthShell, FormError, PhoneField, formatPhone } from "./auth-ui";
 
-const DEMO = [
-  ["9000000001", "Rahul Mehta", "Resident · A-402, Green Valley"],
-  ["9000000101", "Sneha Pillai", "Resident · A-101, with bookings"],
-  ["9000000002", "Amit Kulkarni", "Society secretary · A-404"],
-  ["9000000010", "Suresh (CoolCare)", "Vendor console"],
-  ["9000000098", "Green Valley Gate", "Guard console"],
-  ["9000000099", "JODO Ops", "Ops console"],
-];
+type LoginFormProps = {
+  mode: "sms" | "email" | "demo" | "unavailable";
+  /** Only set in demo mode, so the demo entry can return to a shared deal. */
+  demoHref?: string;
+  turnstileSiteKey?: string;
+  googleEnabled?: boolean;
+  googleEmail?: string;
+  googleLinkId?: string;
+  googleError?: string;
+  emailEnabled?: boolean;
+  emailLinkEmail?: string;
+  emailLinkId?: string;
+};
 
-const POINTS = [
-  ["One day, one vendor", "The whole building is served together, so travel cost collapses."],
-  ["The price only falls", "Everyone pays the final group price — including whoever joined first."],
-  ["₹0 until it locks", "If the group doesn't fill, nobody is charged."],
-];
+type PendingLink = { method: "google" | "email"; email: string; id: string };
+type CodeRecipient = { method: "sms"; phone: string } | { method: "email"; email: string };
 
-export default function LoginForm({ next }: { next?: string }) {
-  const [state, action, pending] = useActionState<ActionState, FormData>(verifyOtp, {});
-  const [phone, setPhone] = useState("9000000001");
+export default function LoginForm({ mode, demoHref, ...props }: LoginFormProps) {
+  if (mode === "email") {
+    return <AuthShell><EmailLogin siteKey={props.turnstileSiteKey} /></AuthShell>;
+  }
 
   return (
-    <main className="jd-auth">
-      <aside className="jd-auth__aside" aria-label="About JODO">
-        <Link href="/" aria-label="JODO home" className="inline-flex items-center gap-2.5 self-start text-[22px] font-extrabold tracking-tight">
-          <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
-            <rect width="32" height="32" rx="9" fill="#dce99e" />
-            <rect x="9" y="19" width="14" height="5" rx="1.5" fill="#132c24" />
-            <rect x="9" y="12.5" width="14" height="5" rx="1.5" fill="#132c24" opacity=".7" />
-            <rect x="9" y="6" width="14" height="5" rx="1.5" fill="#156348" />
-          </svg>
-          jodo
-        </Link>
-        <div className="max-w-[30rem]">
-          <p className="jd-band__kicker">Group booking for your society</p>
-          <p className="text-[40px] xl:text-[48px] font-extrabold leading-[1.05] tracking-tight mt-3">
-            Your building books together. Everyone pays less.
-          </p>
-          <ul className="mt-10 flex flex-col gap-5">
-            {POINTS.map(([title, body]) => (
-              <li key={title} className="flex gap-3">
-                <span aria-hidden="true" className="mt-1 w-5 h-5 shrink-0 rounded-full bg-[#dce99e] text-[#132c24] grid place-items-center text-[11px] font-extrabold">✓</span>
-                <span>
-                  <span className="block font-bold">{title}</span>
-                  <span className="block text-[14px] jd-band__muted">{body}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <p className="text-[12px] jd-band__muted">
-          <Link href="/terms" className="underline">Terms</Link> · <Link href="/privacy" className="underline">Privacy</Link>
-        </p>
-      </aside>
+    <AuthShell>
+      {mode === "sms"
+        ? <SmsLogin {...props} />
+        : <Unavailable demoHref={mode === "demo" ? demoHref ?? "/demo/sign-in" : undefined} />}
+    </AuthShell>
+  );
+}
 
-      <div className="w-full max-w-[480px] mx-auto px-5 py-10 sm:py-14 flex flex-col">
-        <div className="mb-8">
-          <Link href="/" aria-label="JODO home" className="inline-block mb-6 lg:hidden">
-            <Logo />
-          </Link>
-          <h1 className="text-[28px] sm:text-[32px] font-extrabold leading-tight tracking-tight mb-2">
-            <span className="lg:hidden">Your building books together. Everyone pays less.</span>
-            <span className="hidden lg:inline">Sign in to your society</span>
-          </h1>
-          <p className="text-ink-500 text-[15px]">
-            One service, one day, one vendor for the whole society — and the price falls as flats join.
-          </p>
-        </div>
-
-        <form action={action} className="card p-5 sm:p-6 flex flex-col gap-3" aria-busy={pending}>
-          {next && <input type="hidden" name="next" value={next} />}
-          <label className="text-sm font-bold" htmlFor="phone">
-            Mobile number
-          </label>
-          <div className="flex items-stretch gap-2">
-            <span className="card px-3 grid place-items-center text-ink-500 text-sm" aria-hidden="true">+91</span>
-            <input
-              id="phone"
-              name="phone"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              inputMode="numeric"
-              autoComplete="tel-national"
-              maxLength={10}
-              aria-describedby="phone-hint"
-              className="card px-3 min-h-12 flex-1 min-w-0 tnum"
-            />
-          </div>
-          <span id="phone-hint" className="sr-only">Indian mobile number, 10 digits, country code +91</span>
-          <label className="text-sm font-bold mt-2" htmlFor="otp">
-            OTP
-          </label>
-          <input
-            id="otp"
-            name="otp"
-            defaultValue="1234"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={4}
-            aria-describedby="otp-hint"
-            className="card px-3 min-h-12 tnum"
-          />
-          <p id="otp-hint" className="text-[12px] text-ink-500">This build doesn&apos;t send SMS — the code is always 1234.</p>
-          <button className="btn btn-primary mt-2" disabled={pending}>
-            {pending ? "Signing in…" : "Continue"}
-          </button>
-          {state.error && (
-            <p role="alert" className="text-[13px] text-danger-600">
-              {state.error}
-            </p>
-          )}
-        </form>
-
-        <h2 className="eyebrow mt-8 mb-2" id="demo-accounts">Try an account</h2>
-        <div className="grid gap-2 sm:grid-cols-2" role="group" aria-labelledby="demo-accounts">
-          {DEMO.map(([num, name, role]) => (
-            <button
-              key={num}
-              type="button"
-              onClick={() => setPhone(num)}
-              aria-pressed={phone === num}
-              className={`card p-3 text-left transition-shadow ${phone === num ? "ring-2 ring-brand-600" : "hover:border-ink-300"}`}
-            >
-              <p className="font-bold text-sm">{name}</p>
-              <p className="text-[12px] text-ink-500">
-                {role} · <span className="tnum">{num}</span>
-              </p>
-            </button>
-          ))}
-        </div>
-        <p className="text-[13px] text-ink-500 mt-8 text-center">
-          New here? <Link href="/" className="font-bold text-brand-700">See how JODO works</Link>
-        </p>
-        <p className="text-[12px] text-ink-500 mt-3 text-center">
-          By continuing you agree to the <Link href="/terms" className="underline">terms</Link> and{" "}
-          <Link href="/privacy" className="underline">privacy policy</Link>.
+function Unavailable({ demoHref }: { demoHref?: string }) {
+  return (
+    <>
+      <AuthHeading title="Sign in to JODO">
+        <p>Use the mobile number registered with your society.</p>
+      </AuthHeading>
+      <div className="jd-signin__notice">
+        <p className="jd-signin__notice-title">Text-message sign-in is off</p>
+        <p>
+          {demoHref
+            ? "SMS sign-in is unavailable in this test workspace."
+            : "We can’t send sign-in codes right now. Please try again later."}
         </p>
       </div>
-    </main>
+      {demoHref && <Link href={demoHref} className="btn btn-quiet w-full">Open demo</Link>}
+      <p className="jd-signin__help">
+        Need access? <Link href="/help#getting-started">Read the sign-in guide</Link>
+      </p>
+    </>
+  );
+}
+
+function SmsLogin({
+  turnstileSiteKey: siteKey, googleEnabled, googleEmail, googleLinkId, googleError,
+  emailEnabled, emailLinkEmail, emailLinkId,
+}: Omit<LoginFormProps, "mode" | "demoHref">) {
+  const [request, sendCode, sending] = useActionState(sendSignInCode, {});
+  const [backFrom, setBackFrom] = useState<typeof request>();
+  const [phone, setPhone] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
+  const phoneInput = useRef<HTMLDivElement>(null);
+  const link: PendingLink | undefined = emailLinkEmail && emailLinkId
+    ? { method: "email", email: emailLinkEmail, id: emailLinkId }
+    : googleEmail && googleLinkId ? { method: "google", email: googleEmail, id: googleLinkId } : undefined;
+
+  useEffect(() => {
+    if (backFrom) phoneInput.current?.querySelector("input")?.focus();
+  }, [backFrom]);
+
+  if (request.phone && backFrom !== request) {
+    return (
+      <ConfirmCode
+        recipient={{ method: "sms", phone: request.phone }}
+        link={link}
+        returnToInput={(resend) => {
+          setPhone(resend ? request.phone ?? "" : "");
+          setCaptchaToken("");
+          setBackFrom(request);
+        }}
+      />
+    );
+  }
+
+  const blocked = sending || (!!siteKey && !captchaToken);
+  return (
+    <>
+      <AuthHeading title={link ? "Confirm your mobile number" : "Sign in to JODO"}>
+        {link ? (
+          <p>
+            {link.method === "google" ? "You’re signed in with Google as " : "You’ve verified "}
+            <strong className="jd-signin__email"><bdi>{link.email}</bdi></strong>.
+            Enter the Indian mobile number registered with your society. We’ll text you a 6-digit code to link
+            {link.method === "google" ? " your Google account" : " your email address"} to JODO.
+          </p>
+        ) : (
+          <p>Use the mobile number registered with your society. We’ll text you a 6-digit code.</p>
+        )}
+      </AuthHeading>
+      <form action={sendCode} className="jd-signin__form" aria-busy={sending}>
+        <div ref={phoneInput}>
+          <PhoneField phone={phone} setPhone={setPhone} invalid={!!request.error} />
+        </div>
+        {siteKey && <Turnstile siteKey={siteKey} reset={request} onToken={setCaptchaToken} />}
+        <input type="hidden" name="cf-turnstile-response" value={captchaToken} />
+        {link && <LinkIntent link={link} />}
+        <FormError state={request} />
+        <button className="btn btn-primary w-full" type="submit" disabled={blocked}>
+          {sending ? "Sending code…" : "Send code"}
+        </button>
+        {siteKey && !captchaToken && !sending && (
+          <p className="jd-signin__hint jd-signin__center">Complete the security check to continue</p>
+        )}
+      </form>
+      {(link || googleEnabled || googleError || emailEnabled) && (
+        <div className="jd-signin__alternative">
+          {link ? <CancelLinkSignIn method={link.method} /> : (
+            <>
+              <FormError state={{ error: googleError }} id="google-sign-in-error" />
+              {googleEnabled && (
+                <a href="/auth/google" className="btn btn-quiet w-full">
+                  {googleError ? "Try Google again" : "Continue with Google"}
+                </a>
+              )}
+              {emailEnabled && <Link href="/login/email" className="btn btn-quiet w-full">Continue with email</Link>}
+            </>
+          )}
+        </div>
+      )}
+      <p className="jd-signin__help">
+        New here or changed your number? <Link href="/help#getting-started">Get help</Link>
+      </p>
+    </>
+  );
+}
+
+function LinkIntent({ link }: { link: PendingLink }) {
+  return <input type="hidden" name={link.method === "google" ? "googleLinkId" : "emailLinkId"} value={link.id} />;
+}
+
+function CancelLinkSignIn({ method }: { method: PendingLink["method"] }) {
+  return (
+    <a href={`/auth/${method}/cancel`} className="btn btn-quiet w-full">
+      {method === "google" ? "Cancel Google sign-in" : "Cancel email sign-in"}
+    </a>
+  );
+}
+
+function EmailLogin({ siteKey }: { siteKey?: string }) {
+  const [request, sendCode, sending] = useActionState(sendEmailSignInCode, {});
+  const [backFrom, setBackFrom] = useState<typeof request>();
+  const [email, setEmail] = useState("");
+  const [captchaToken, setCaptchaToken] = useState("");
+  const emailInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (backFrom) emailInput.current?.focus();
+  }, [backFrom]);
+
+  if (request.email && backFrom !== request) {
+    return (
+      <ConfirmCode
+        recipient={{ method: "email", email: request.email }}
+        returnToInput={(resend) => {
+          setEmail(resend ? request.email ?? "" : "");
+          setCaptchaToken("");
+          setBackFrom(request);
+        }}
+      />
+    );
+  }
+
+  return (
+    <>
+      <AuthHeading title="Sign in with email">
+        <p>We’ll send a 6-digit code to your email address.</p>
+      </AuthHeading>
+      <form action={sendCode} className="jd-signin__form" aria-busy={sending}>
+        <div className="jd-signin__field">
+          <label htmlFor="email">Email address</label>
+          <input
+            ref={emailInput} id="email" name="email" className="jd-signin__email-input" type="email"
+            autoComplete="email" autoCapitalize="none" spellCheck={false} required maxLength={254}
+            value={email} onChange={(event) => setEmail(event.target.value)}
+            aria-invalid={request.error ? true : undefined}
+            aria-describedby={request.error ? "sign-in-error" : undefined}
+          />
+        </div>
+        {siteKey && <Turnstile siteKey={siteKey} reset={request} onToken={setCaptchaToken} />}
+        <input type="hidden" name="cf-turnstile-response" value={captchaToken} />
+        <FormError state={request} />
+        <button className="btn btn-primary w-full" type="submit" disabled={sending || (!!siteKey && !captchaToken)}>
+          {sending ? "Sending code…" : "Send email code"}
+        </button>
+        {siteKey && !captchaToken && !sending && (
+          <p className="jd-signin__hint jd-signin__center">Complete the security check to continue</p>
+        )}
+      </form>
+      <UseMobileNumber />
+    </>
+  );
+}
+
+function UseMobileNumber() {
+  return (
+    <div className="jd-signin__alternative">
+      <Link href="/login" className="btn btn-quiet w-full">Use mobile number</Link>
+    </div>
+  );
+}
+
+function ConfirmCode({ recipient, link, returnToInput }: {
+  recipient: CodeRecipient;
+  link?: PendingLink;
+  returnToInput: (resend: boolean) => void;
+}) {
+  const isEmail = recipient.method === "email";
+  const [state, action, pending] = useActionState(isEmail ? verifyEmailSignInCode : verifyOtp, {});
+  const [code, setCode] = useState("");
+  const otp = useRef<HTMLInputElement>(null);
+  const wait = useResendWait();
+  const submitLabel = link?.method === "google" ? "Link Google account"
+    : link?.method === "email" ? "Link email address" : isEmail ? "Verify email code" : "Sign in";
+
+  useEffect(() => {
+    otp.current?.focus();
+  }, []);
+
+  return (
+    <>
+      <AuthHeading title="Enter your code">
+        <p>
+          <span className="sr-only" role="status">Code sent. </span>
+          We sent a 6-digit code to{" "}
+          {isEmail
+            ? <strong className="jd-signin__email"><bdi>{recipient.email}</bdi></strong>
+            : <strong className="tnum">{formatPhone(recipient.phone)}</strong>}.{" "}
+          <button type="button" className="jd-signin__inline" disabled={pending} onClick={() => returnToInput(false)}>
+            {isEmail ? "Change email" : "Change number"}
+          </button>
+        </p>
+      </AuthHeading>
+      <form action={action} className="jd-signin__form" aria-busy={pending}>
+        {isEmail
+          ? <input type="hidden" name="email" value={recipient.email} />
+          : <input type="hidden" name="phone" value={recipient.phone} />}
+        {link && <LinkIntent link={link} />}
+        <div className="jd-signin__field">
+          <label htmlFor="otp">Sign-in code</label>
+          <input
+            ref={otp} id="otp" name="otp" className="jd-signin__otp tnum" type="text" inputMode="numeric"
+            autoComplete="one-time-code" pattern="[0-9]{6}" required spellCheck={false} autoCorrect="off"
+            placeholder="••••••" title="6-digit code"
+            value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+            aria-invalid={state.error ? true : undefined}
+            aria-describedby={state.error ? "otp-hint sign-in-error" : "otp-hint"}
+          />
+          <p id="otp-hint" className="jd-signin__hint">Use the most recent code we sent</p>
+        </div>
+        <FormError state={state} />
+        <button type="submit" className="btn btn-primary w-full" disabled={pending}>
+          {pending ? "Verifying…" : submitLabel}
+        </button>
+      </form>
+      {link && <div className="jd-signin__alternative"><CancelLinkSignIn method={link.method} /></div>}
+      {isEmail && <UseMobileNumber />}
+      <p className="jd-signin__help">
+        Didn’t get it?{" "}
+        {wait > 0
+          ? <span className="tnum">You can request a new code in {wait}s</span>
+          : <button type="button" className="jd-signin__inline" disabled={pending} onClick={() => returnToInput(true)}>Request a new code</button>}
+      </p>
+    </>
+  );
+}
+
+/** Seconds left before another code may be requested (the provider allows one a minute). */
+function useResendWait() {
+  const [wait, setWait] = useState(60);
+  useEffect(() => {
+    const readyAt = performance.now() + 60_000;
+    const timer = window.setInterval(() => {
+      const left = Math.max(0, Math.ceil((readyAt - performance.now()) / 1000));
+      setWait(left);
+      if (left === 0) window.clearInterval(timer);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return wait;
+}
+
+type TurnstileClient = {
+  render(element: HTMLElement, options: Record<string, unknown>): string;
+  remove(widget: string): void;
+};
+
+function Turnstile({ siteKey, reset, onToken }: {
+  siteKey: string;
+  reset: object;
+  onToken: (token: string) => void;
+}) {
+  const element = useRef<HTMLDivElement>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    const target = element.current;
+    const api = (window as Window & { turnstile?: TurnstileClient }).turnstile;
+    if (!loaded || !target || !api) return;
+    onToken("");
+    const widget = api.render(target, {
+      sitekey: siteKey, size: target.clientWidth < 300 ? "compact" : "normal",
+      "response-field": false,
+      callback: onToken,
+      "expired-callback": () => onToken(""),
+      "error-callback": () => onToken(""),
+    });
+    return () => api.remove(widget);
+  }, [loaded, onToken, reset, siteKey]);
+  return (
+    <>
+      <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" onReady={() => setLoaded(true)} onError={() => setFailed(true)} />
+      <div ref={element} className="jd-signin__captcha" aria-label="Security check" />
+      {failed && <p role="alert" className="jd-signin__error">The security check couldn’t load. Reload this page and try again.</p>}
+    </>
   );
 }

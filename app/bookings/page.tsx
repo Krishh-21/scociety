@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { isDemoMode } from "@/lib/auth-mode";
 import { disputesForUser, issueWindowOpen, myBookings, myJob, paymentsForMember, queueAhead, revisitsForResident } from "@/lib/deals";
 import { formatDate, rupees } from "@/lib/pricing";
 import { formatRevisitDate } from "@/lib/revisits";
@@ -62,9 +63,10 @@ function RevisitDetails({ visit, showIssue }: { visit: RevisitVisit; showIssue: 
 }
 
 export default async function BookingsPage() {
+  if (!isDemoMode()) notFound();
   const me = await getMe();
   if (!me) redirect("/login");
-  if (!me.residency) redirect("/onboarding");
+  if (me.residency?.status !== "verified") redirect("/onboarding");
   const t = translator(me.user.lang);
   const [bookings, disputes, revisits] = await Promise.all([
     myBookings(me.user.id),
@@ -86,6 +88,7 @@ export default async function BookingsPage() {
   return (
     <Phone>
       <AppHeader
+        back={{ href: "/explore", label: "Services" }}
         title={t("bookings.title", "My bookings")}
         subtitle={`${me.residency.societyName} · ${me.residency.flat}`}
         right={active ? <AutoRefresh intervalMs={15_000} /> : undefined}
@@ -96,11 +99,8 @@ export default async function BookingsPage() {
             <h2 className="text-[17px] font-extrabold mb-1">{t("bookings.none", "Nothing booked yet")}</h2>
             <p className="text-sm text-ink-500 mb-5">Join a group in your society and the price falls for everyone.</p>
             <div className="flex flex-col sm:flex-row gap-2 justify-center">
-              <Link href="/" className="btn btn-primary">
-                See live groups
-              </Link>
-              <Link href="/explore" className="btn btn-quiet">
-                Explore services
+              <Link href="/explore" className="btn btn-primary">
+                See group services
               </Link>
             </div>
           </div>
@@ -244,7 +244,7 @@ export default async function BookingsPage() {
         })}
         <div className="h-4" />
       </div>
-      <TabBar active="bookings" t={t} />
+      <TabBar active="bookings" t={t} context={{ society: me.residency.societyName, flat: me.residency.flat }} />
     </Phone>
   );
 }

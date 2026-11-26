@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { isDemoMode } from "@/lib/auth-mode";
 import { getDealView, myJob, queueAhead, tickDeal } from "@/lib/deals";
 import { formatDate, rupees, timeAgo } from "@/lib/pricing";
 import { getMe } from "@/lib/session";
@@ -28,11 +29,12 @@ export default async function DealPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ created?: string }>;
 }) {
+  if (!isDemoMode()) notFound();
   const { id } = await params;
   const me = await getMe();
   const next = dealReturnPath(`/deal/${id}`);
   if (!me) redirect(dealReturnHref("/login", next));
-  if (!me.residency && (me.user.role === "resident" || me.user.role === "secretary")) {
+  if (me.residency?.status !== "verified" && (me.user.role === "resident" || me.user.role === "secretary")) {
     redirect(dealReturnHref("/onboarding", next));
   }
   // A group is private to its own society, ops and the deal's vendor.
@@ -289,7 +291,7 @@ export default async function DealPage({
           share: t("deal.share", "Share to WhatsApp"),
         }}
       />
-      <TabBar active="home" t={t} mobile={false} />
+      <TabBar active="explore" t={t} mobile={false} />
     </Phone>
   );
 }

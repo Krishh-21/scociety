@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { getMe } from "@/lib/session";
 import { SocietyAccessError } from "@/lib/society-access";
-import { createGuestPass, decideVisit, GateError, logVisit, recordVisitMovement, redeemGuestPass } from "@/lib/society-gate";
+import {
+  cancelVisit, createGuestPass, decideVisit, GateError, logVisit, recordVisitMovement, redeemGuestPass, revokeGuestPass,
+} from "@/lib/society-gate";
 
-export type VisitorActionState = { error?: string; ok?: string; code?: string; expiresAt?: string; visitId?: string };
+export type VisitorActionState = { error?: string; ok?: string; code?: string; expiresAt?: string; visitId?: string; passId?: string };
 
 function field(form: FormData, name: string) {
   const value = form.get(name);
@@ -43,6 +45,19 @@ export async function decideVisitAction(_prev: VisitorActionState, form: FormDat
   }
 }
 
+export async function cancelVisitAction(_prev: VisitorActionState, form: FormData): Promise<VisitorActionState> {
+  try {
+    await cancelVisit(await getMe(), field(form, "visitId"));
+    revalidatePath("/society/visitors");
+    revalidatePath("/society");
+    revalidatePath("/notifications");
+    revalidatePath("/");
+    return { ok: "Entry ticket cancelled." };
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
 export async function recordVisitMovementAction(_prev: VisitorActionState, form: FormData): Promise<VisitorActionState> {
   try {
     const direction = field(form, "direction");
@@ -57,9 +72,19 @@ export async function recordVisitMovementAction(_prev: VisitorActionState, form:
 
 export async function createGuestPassAction(_prev: VisitorActionState, form: FormData): Promise<VisitorActionState> {
   try {
-    const { code, expiresAt } = await createGuestPass(await getMe(), field(form, "name"));
+    const { id, code, expiresAt } = await createGuestPass(await getMe(), field(form, "name"));
     revalidatePath("/society/visitors");
-    return { code, expiresAt };
+    return { code, expiresAt, passId: id };
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function revokeGuestPassAction(_prev: VisitorActionState, form: FormData): Promise<VisitorActionState> {
+  try {
+    await revokeGuestPass(await getMe(), field(form, "passId"));
+    revalidatePath("/society/visitors");
+    return { ok: "Guest pass revoked." };
   } catch (error) {
     return errorState(error);
   }

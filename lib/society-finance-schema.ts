@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS society_finance_payments (
   recordedAt TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS society_finance_receipt_access (
+  paymentId TEXT PRIMARY KEY REFERENCES society_finance_payments(id) ON DELETE CASCADE,
+  residencyId TEXT NOT NULL REFERENCES residency(id) ON DELETE CASCADE,
+  payerId TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS society_finance_expenses (
   id TEXT PRIMARY KEY,
   societyId TEXT NOT NULL REFERENCES society(id),

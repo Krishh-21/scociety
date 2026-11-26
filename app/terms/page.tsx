@@ -1,101 +1,44 @@
 import type { Metadata } from "next";
 import { LegalLayout, MarketingPage, Prose } from "@/components/marketing";
+import { isDemoMode } from "@/lib/auth-mode";
 
 export const metadata: Metadata = {
   title: "Terms",
-  description: "The rules of group booking on JODO — pricing, payments, cancellations, warranty and disputes.",
+  description: "Terms for using JODO's housing society tools.",
 };
 
-const SECTIONS = [
-  { id: "group-prices", title: "Group prices" },
-  { id: "payments", title: "Payments" },
-  { id: "leaving-a-group", title: "Leaving a group" },
-  { id: "service-day", title: "Service day" },
-  { id: "warranty-and-issues", title: "Warranty and issues" },
-  { id: "your-account", title: "Your account" },
-  { id: "societies-and-vendors", title: "Societies and vendors" },
-  { id: "liability", title: "Liability" },
-  { id: "changes", title: "Changes" },
-];
-
 export default function TermsPage() {
+  const demo = isDemoMode();
+  const sections = [
+    { id: "society-tools", title: "Society tools" },
+    { id: "your-account", title: "Your account" },
+    ...(demo ? [{ id: "payments", title: "Test bookings" }] : []),
+  ];
+
   return (
-    <MarketingPage
-      wide
-      eyebrow="Terms"
-      title="Terms of use"
-      intro={
-        <p className="text-[14px] text-ink-500">
-          Last updated 21 October 2026 · Working draft for this build — to be reviewed by counsel before public launch.
-        </p>
-      }
-    >
-      <LegalLayout sections={SECTIONS}>
+    <MarketingPage wide title="Terms of use" intro={<p>Draft for review before public launch.</p>}>
+      <LegalLayout sections={sections}>
         <Prose>
-          <p>
-            These terms cover how group bookings on JODO work. JODO is a marketplace: the service itself is performed by
-            the independent vendor shown on the group. By joining a group you agree to the terms below.
-          </p>
-
-          <h2 id="group-prices">1. Group prices</h2>
+          <h2 id="society-tools">Society tools</h2>
           <ul>
-            <li>Every group shows a published price ladder before you join.</li>
-            <li>Everyone in a group pays the same final price — the slab the group has reached when it locks — including whoever joined first.</li>
-            <li>The price you are charged never goes above the price shown when you joined. A vendor cannot raise a ladder once anyone has joined, and if members leave, the price already reached is held.</li>
+            <li>Your committee manages your society’s space, including notices, maintenance bills, complaints and guard access.</li>
+            <li>Pay maintenance dues directly to your society. The committee records the payment in JODO and can answer questions about your bill or receipt.</li>
+            <li>Guards follow your society’s gate policy when acting on visitor decisions and guest passes.</li>
           </ul>
 
-          <h2 id="payments">2. Payments</h2>
+          <h2 id="your-account">Your account</h2>
           <ul>
-            <li>When you join we take a UPI AutoPay mandate or a card authorisation, not a payment.</li>
-            <li>We charge you only when the group locks at its deadline, for the final price multiplied by your units.</li>
-            <li>If the group does not reach its minimum by the deadline (after at most one automatic 48-hour extension), it is cancelled and every authorisation is released.</li>
-            <li>Cash payments go directly to the vendor and are not covered by section 5.</li>
+            <li>Use a mobile number you control. Enter accurate information when requesting access to a flat.</li>
+            <li>Keep sign-in codes private. Share a guest pass only with the person you expect at the gate.</li>
+            <li>Ask your committee if your number or flat changes or you need help with access.</li>
           </ul>
 
-          <h2 id="leaving-a-group">3. Leaving a group</h2>
-          <p>
-            You can leave a group at no cost any time before it locks. After it locks, the booking is confirmed for the
-            vendor; if you can't be home, try swapping slots with a neighbour in the group's comments.
-          </p>
-
-          <h2 id="service-day">4. Service day</h2>
-          <ul>
-            <li>Give the technician your start code when they arrive and your completion code only when you're satisfied.</li>
-            <li>Anything outside the listed scope (for example a gas refill) must be quoted and approved by you in the app before it's done. Don't pay technicians extra in cash.</li>
-            <li>Keep the area accessible during your slot. A missed slot may not be possible to reschedule the same day.</li>
-          </ul>
-
-          <h2 id="warranty-and-issues">5. Warranty and issues</h2>
-          <ul>
-            <li>Each service lists its workmanship warranty (for example 30 days for AC service).</li>
-            <li>Raise an issue from your booking within that window. JODO ops will review it within 48 hours and may ask the vendor to revisit, refund you in full, or close the issue with an explanation.</li>
-            <li>Payment to the vendor for a disputed job is held until the issue is resolved.</li>
-          </ul>
-
-          <h2 id="your-account">6. Your account</h2>
-          <p>
-            You must live in, own or rent the flat you register, and give a real name. Groups are private to verified
-            residents of a society — don't share codes, screenshots of neighbours' details, or your account.
-          </p>
-
-          <h2 id="societies-and-vendors">7. Societies and vendors</h2>
-          <p>
-            Societies can require committee approval before groups go live. Vendors agree to separate partner terms
-            covering verification, insurance, pricing and payouts.
-          </p>
-
-          <h2 id="liability">8. Liability</h2>
-          <p>
-            Vendors are responsible for the work they perform and carry damage insurance as a condition of listing.
-            JODO's liability for any booking is limited to the amount you paid for it, except where the law does not
-            allow that limit.
-          </p>
-
-          <h2 id="changes">9. Changes</h2>
-          <p>
-            If we change these terms in a way that matters, we'll tell you in the app before it takes effect. Groups you
-            have already joined continue under the terms that applied when you joined.
-          </p>
+          {demo && (
+            <>
+              <h2 id="payments">Test bookings</h2>
+              <p>Group bookings and payments in the demo are simulations. No jobs are booked and no money moves.</p>
+            </>
+          )}
         </Prose>
       </LegalLayout>
     </MarketingPage>

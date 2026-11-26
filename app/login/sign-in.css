@@ -1,0 +1,465 @@
+/*
+ * Sign-in screens (/login and /demo/sign-in). Namespaced `jd-signin`, built on
+ * the global tokens so light and dark themes follow app/globals.css.
+ * Same layer order Tailwind declares; rules sit in `components` so utilities win.
+ */
+@layer properties, theme, base, components, utilities;
+
+@layer components {
+  .jd-signin {
+    --jd-signin-ring: 0 0 0 3px rgb(82 105 217 / 0.28);
+    --jd-signin-shadow: 0 1px 2px rgb(23 34 59 / 0.04), 0 12px 32px -16px rgb(23 34 59 / 0.14);
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right));
+    background: var(--color-canvas);
+    color: var(--color-ink-900);
+  }
+  :root[data-theme="dark"] .jd-signin {
+    --jd-signin-ring: 0 0 0 3px rgb(167 181 255 / 0.3);
+    --jd-signin-shadow: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .jd-signin {
+      --jd-signin-ring: 0 0 0 3px rgb(167 181 255 / 0.3);
+      --jd-signin-shadow: none;
+    }
+  }
+
+  /* ------------------------------------------------------- top bar */
+  .jd-signin__top {
+    width: 100%;
+    max-width: 1120px;
+    margin-inline: auto;
+    min-height: 64px;
+    padding-top: env(safe-area-inset-top);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .jd-signin__brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--color-ink-900);
+  }
+  .jd-signin__toplink {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding-inline: 4px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--color-ink-700);
+  }
+  .jd-signin__toplink:hover {
+    color: var(--color-ink-900);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  /* ------------------------------------------------------- panel */
+  .jd-signin__main {
+    display: grid;
+    place-items: center;
+    padding-block: 24px 40px;
+  }
+  .jd-signin__column {
+    width: 100%;
+    max-width: 400px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .jd-signin__panel {
+    min-width: 0;
+  }
+  @media (min-width: 480px) {
+    .jd-signin__main {
+      padding-block: 40px 56px;
+    }
+    .jd-signin__column {
+      max-width: 432px;
+    }
+    .jd-signin__panel {
+      padding: 32px;
+      border-radius: 20px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-line);
+      box-shadow: var(--jd-signin-shadow);
+    }
+  }
+
+  .jd-signin__heading {
+    margin-bottom: 24px;
+  }
+  .jd-signin__heading h1 {
+    font-size: 28px;
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  .jd-signin__lede {
+    margin-top: 8px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--color-ink-500);
+    overflow-wrap: anywhere;
+  }
+  .jd-signin__lede strong {
+    font-weight: 600;
+    color: var(--color-ink-900);
+    white-space: nowrap;
+  }
+  .jd-signin__lede .jd-signin__email {
+    white-space: normal;
+  }
+  @media (min-width: 480px) {
+    .jd-signin__heading h1 {
+      font-size: 30px;
+    }
+  }
+
+  /* ------------------------------------------------------- form */
+  .jd-signin__form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+  .jd-signin__alternative {
+    display: grid;
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .jd-signin__field {
+    min-width: 0;
+  }
+  .jd-signin__field > label,
+  .jd-signin__accounts > legend {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-ink-700);
+  }
+  .jd-signin__hint {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--color-ink-500);
+  }
+  .jd-signin__form > .jd-signin__hint {
+    margin-top: 0;
+  }
+  .jd-signin__center {
+    text-align: center;
+  }
+
+  /* Inputs stay at 17px+ so iOS Safari never zooms on focus. */
+  .jd-signin__phone {
+    display: flex;
+    min-height: 52px;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--color-line);
+    border-radius: 12px;
+    background: var(--color-surface);
+    transition: border-color 140ms, box-shadow 140ms;
+  }
+  .jd-signin__phone > span {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    padding-inline: 14px 12px;
+    border-right: 1px solid var(--color-line);
+    font-size: 17px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-500);
+  }
+  .jd-signin__phone > input {
+    flex: 1;
+    min-width: 0;
+    padding-inline: 12px;
+    background: transparent;
+    font-size: 17px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    color: var(--color-ink-900);
+  }
+  .jd-signin__phone > input:focus-visible {
+    outline: none;
+  }
+  .jd-signin__phone:focus-within,
+  .jd-signin__email-input:focus-visible,
+  .jd-signin__otp:focus-visible {
+    outline: none;
+    border-color: var(--color-brand-500);
+    box-shadow: var(--jd-signin-ring);
+  }
+  .jd-signin__phone[data-invalid],
+  .jd-signin__email-input[aria-invalid="true"],
+  .jd-signin__otp[aria-invalid="true"] {
+    border-color: var(--color-danger-600);
+  }
+
+  .jd-signin__email-input,
+  .jd-signin__otp {
+    display: block;
+    width: 100%;
+    border: 1px solid var(--color-line);
+    border-radius: 12px;
+    background: var(--color-surface);
+    color: var(--color-ink-900);
+    transition: border-color 140ms, box-shadow 140ms;
+  }
+  .jd-signin__email-input {
+    min-height: 52px;
+    padding-inline: 12px;
+    font-size: 17px;
+  }
+  .jd-signin__otp {
+    min-height: 60px;
+    padding: 0 0 0 0.5em;
+    font-size: 26px;
+    font-weight: 500;
+    letter-spacing: 0.5em;
+    text-align: center;
+  }
+  .jd-signin__otp::placeholder {
+    color: var(--color-ink-300);
+    opacity: 0.6;
+  }
+
+  .jd-signin__captcha {
+    min-height: 65px;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .jd-signin__error-slot:empty {
+    display: none;
+  }
+  .jd-signin__error {
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--color-danger-50);
+    color: var(--color-danger-600);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  /* ------------------------------------------------------- notices and help */
+  .jd-signin__notice {
+    margin-bottom: 16px;
+    padding: 16px;
+    border-radius: 12px;
+    background: var(--color-canvas-alt);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-ink-700);
+  }
+  .jd-signin__notice-title {
+    margin-bottom: 4px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-ink-900);
+  }
+
+  .jd-signin__help {
+    margin-top: 24px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-ink-500);
+  }
+  .jd-signin__help a,
+  .jd-signin__inline {
+    font-weight: 600;
+    color: var(--color-brand-700);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    text-decoration-thickness: 1px;
+  }
+  .jd-signin__inline {
+    display: inline;
+    padding: 10px 0;
+    margin: -10px 0;
+    font-size: inherit;
+    cursor: pointer;
+  }
+  .jd-signin__inline:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* ------------------------------------------------------- demo accounts */
+  .jd-signin__accounts {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .jd-signin__account {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 56px;
+    padding: 10px 14px;
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    cursor: pointer;
+  }
+  .jd-signin__account + .jd-signin__account {
+    margin-top: -1px;
+  }
+  .jd-signin__account:first-of-type {
+    border-radius: 12px 12px 0 0;
+  }
+  .jd-signin__account:last-of-type {
+    border-radius: 0 0 12px 12px;
+  }
+  .jd-signin__account:hover {
+    background: var(--color-canvas-alt);
+  }
+  .jd-signin__account:has(input:checked) {
+    position: relative;
+    border-color: var(--color-brand-500);
+    background: var(--color-brand-50);
+  }
+  .jd-signin__account:has(input:focus-visible) {
+    position: relative;
+    z-index: 1;
+    box-shadow: var(--jd-signin-ring);
+  }
+  .jd-signin__account input {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-brand-600);
+  }
+  .jd-signin__account input:focus-visible {
+    outline-offset: 3px;
+  }
+  .jd-signin__account-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+  .jd-signin__account-role {
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+  .jd-signin__account-detail {
+    font-size: 13px;
+    line-height: 1.35;
+    color: var(--color-ink-500);
+  }
+  .jd-signin__account-phone {
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--color-ink-500);
+    white-space: nowrap;
+  }
+  @media (max-width: 359px) {
+    .jd-signin__account-phone {
+      display: none;
+    }
+  }
+
+  .jd-signin__more {
+    min-width: 0;
+    border-top: 1px solid var(--color-line);
+    padding-top: 8px;
+  }
+  .jd-signin__more > summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--color-ink-700);
+    cursor: pointer;
+    list-style-position: inside;
+  }
+  .jd-signin__more > summary::before {
+    content: "";
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    margin: 0 12px 0 4px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 140ms;
+  }
+  .jd-signin__more > summary::-webkit-details-marker {
+    display: none;
+  }
+  .jd-signin__more[open] > summary::before {
+    transform: rotate(45deg);
+  }
+  .jd-signin__more > form {
+    padding: 8px 0 8px;
+  }
+  @media (min-width: 480px) {
+    .jd-signin__more {
+      padding: 4px 24px;
+      border: 1px solid var(--color-line);
+      border-radius: 16px;
+      background: var(--color-surface);
+    }
+    .jd-signin__more > form {
+      padding-bottom: 20px;
+    }
+  }
+
+  /* ------------------------------------------------------- footer */
+  .jd-signin__foot {
+    width: 100%;
+    max-width: 640px;
+    margin-inline: auto;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+  .jd-signin__skyline {
+    display: block;
+    width: 100%;
+    height: auto;
+    color: var(--color-line);
+  }
+  .jd-signin__policies {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    padding-top: 12px;
+    font-size: 13px;
+    color: var(--color-ink-500);
+  }
+  .jd-signin__policies a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+  }
+  .jd-signin__policies a:hover {
+    color: var(--color-ink-900);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jd-signin *,
+    .jd-signin *::before {
+      transition: none !important;
+    }
+  }
+}

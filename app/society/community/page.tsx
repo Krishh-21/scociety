@@ -149,7 +149,7 @@ export default async function CommunityPage({ searchParams }: { searchParams: Pr
           {amenities.map((amenity) => <AmenityCard key={amenity.id} amenity={amenity} now={now} />)}
         </Section>
       </main>
-      <TabBar active="society" mobile={false} />
+      <TabBar active="community" mobile={false} />
     </Phone>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
 import { reportComplaintAction, updateComplaintAction, type ComplaintFormState } from "./actions";
+import { useSocietyForm } from "../useSocietyForm";
 
 const field = "card px-3 py-2 w-full text-sm font-normal";
 
@@ -15,9 +15,9 @@ function FormFeedback({ state }: { state: ComplaintFormState }) {
 }
 
 export function ReportComplaintForm({ categories }: { categories: readonly string[] }) {
-  const [state, action, pending] = useActionState(reportComplaintAction, {});
+  const { state, pending, formProps } = useSocietyForm(reportComplaintAction);
   return (
-    <form action={action} aria-busy={pending} className="grid gap-3 mt-3">
+    <form {...formProps} className="grid gap-3 mt-3">
       <label className="grid gap-1 text-sm font-bold">
         Category
         <select className={field} name="category" defaultValue="" required>
@@ -40,10 +40,10 @@ export function ReportComplaintForm({ categories }: { categories: readonly strin
 }
 
 export function UpdateComplaintForm({ id, current }: { id: string; current: "open" | "assigned" | "in_progress" }) {
-  const [state, action, pending] = useActionState(updateComplaintAction, {});
+  const { state, pending, formProps } = useSocietyForm(updateComplaintAction);
   const next = { open: ["assigned", "Assign complaint"], assigned: ["in_progress", "Start work"], in_progress: ["resolved", "Resolve complaint"] }[current];
   return (
-    <form action={action} aria-busy={pending} className="grid gap-2 mt-3 pt-3 border-t border-line">
+    <form {...formProps} className="grid gap-2 mt-3 pt-3 border-t border-line">
       <input type="hidden" name="complaintId" value={id} />
       <input type="hidden" name="status" value={next[0]} />
       {current === "open" && (

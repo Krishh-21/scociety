@@ -1,360 +1,423 @@
-import Image from "next/image";
 import Link from "next/link";
+import { isDemoMode } from "@/lib/auth-mode";
 import { listSkus } from "@/lib/deals";
-import { publicStats } from "@/lib/leads";
-import { currentPrice, rupees } from "@/lib/pricing";
+import { rupees } from "@/lib/pricing";
 import { FAQ } from "@/lib/faq";
 import type { Sku } from "@/lib/types";
 import { FaqList, MarketingShell, WRAP } from "./marketing";
-import { LadderDemo, SocietyLeadForm, type LadderService } from "./marketing-client";
-
-/** Short labels for the ladder switcher; falls back to the catalogue name. */
-const SHORT: Record<string, string> = {
-  sku_ac_service: "AC service",
-  sku_deep_clean: "Deep cleaning",
-  sku_car_wash: "Car wash",
-  sku_pest: "Pest control",
-};
+import { SocietyLeadForm } from "./marketing-client";
 
 const basisOf = (s: Sku) => (s.ladderBasis === "units" ? `${s.unitLabel}s` : "flats");
 
 export default async function Landing() {
-  const [skus, stats] = await Promise.all([listSkus(), publicStats()]);
-  const ac = skus.find((s) => s.id === "sku_ac_service");
-  const acBest = ac ? (ac.defaultSlabs.find((s) => s.minFlats === 20) ?? ac.defaultSlabs.at(-1)) : undefined;
-  const exampleGroupSize = 12;
-
-  // AC first in the demo — it's the example the whole page is written around.
-  const ladder: LadderService[] = [...skus]
-    .sort((a, b) => (a.id === ac?.id ? -1 : b.id === ac?.id ? 1 : 0))
-    .filter((s) => s.defaultSlabs.length > 0)
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      shortName: SHORT[s.id] ?? s.category,
-      unitLabel: s.unitLabel,
-      basisLabel: basisOf(s),
-      listPricePaise: s.listPricePaise,
-      slabs: s.defaultSlabs,
-    }));
+  const demo = isDemoMode();
+  const skus = demo ? await listSkus() : [];
+  const services = skus
+    .map((s) => {
+      const best = [...s.defaultSlabs].sort((a, b) => a.minFlats - b.minFlats).at(-1);
+      return best ? { sku: s, best } : null;
+    })
+    .filter((x) => x !== null);
 
   return (
     <MarketingShell>
       {/* ------------------------------------------------------------ hero */}
-      <section aria-labelledby="hero-title" className="mk-grain">
-        <div className={`${WRAP} pt-10 sm:pt-16 lg:pt-20 pb-16 sm:pb-20 grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-16 items-center [&>*]:min-w-0`}>
+      <section aria-labelledby="hero-title" className="relative mk-grain overflow-hidden">
+        <div
+          className={`${WRAP} relative pt-12 sm:pt-16 lg:pt-20 pb-16 sm:pb-20 grid lg:grid-cols-[0.95fr_1.1fr] gap-12 lg:gap-16 items-center [&>*]:min-w-0`}
+        >
           <div>
-            <p className="inline-flex items-center gap-2 rounded-full bg-surface border border-line px-3 py-1.5 text-[13px] font-bold text-ink-700">
-              <span aria-hidden="true" className="w-2 h-2 rounded-full bg-brand-600" />
-              Pay only once the group confirms
-            </p>
-            <h1 id="hero-title" className="mk-display text-[42px] min-[400px]:text-[48px] sm:text-[64px] xl:text-[70px] mt-6">
-              Your building books together. <span className="mk-mark">Everyone pays less.</span>
+            <p className="text-[14px] font-medium text-ink-500">For residents, committees and gate staff</p>
+            <h1 id="hero-title" className="mk-display text-[38px] min-[400px]:text-[44px] sm:text-[56px] xl:text-[60px] mt-4">
+              Your society’s gate, notices and dues&nbsp;— in one place.
             </h1>
-            {ac && acBest && (
-              <p className="mk-lede text-[18px] sm:text-[19px] text-ink-700 leading-relaxed mt-6 max-w-xl">
-                One service, one day, one vendor for the whole society. Neighbours join the same job and the price falls
-                in public as each flat joins — AC service goes from {rupees(ac.listPricePaise)} to{" "}
-                <strong className="text-ink-900">{rupees(acBest.pricePaise)}</strong> when {acBest.minFlats}{" "}
-                {basisOf(ac)} book together.
-              </p>
-            )}
+            <p className="mk-lede text-[17px] sm:text-[19px] text-ink-700 leading-relaxed mt-6 max-w-xl">
+              Approve visitors from your flat. Read notices and RSVP to meetings. See your maintenance bills and receipts.
+              Report a maintenance issue and follow it through to resolution. JODO keeps each task’s status visible to
+              the people handling it.
+            </p>
             <div className="flex flex-col min-[420px]:flex-row flex-wrap gap-3 mt-8">
-              <Link href="/login" className="btn btn-primary h-12 px-6 text-[16px]">
-                Find your society
+              <Link href="#request" className="btn btn-primary h-12 px-6 text-[16px]">
+                Set up your society
               </Link>
-              <Link href="#societies" className="btn mk-btn-outline h-12 px-6 text-[16px]">
-                Bring JODO to your society
+              <Link href="/login" className="btn mk-btn-outline h-12 px-6 text-[16px]">
+                Sign in
               </Link>
             </div>
-            <dl className="grid grid-cols-2 min-[420px]:grid-cols-3 gap-x-4 gap-y-5 mt-12 pt-6 border-t border-line max-w-lg">
+            <ul className="mt-10 pt-5 border-t border-line flex flex-col gap-2 text-[14px] text-ink-500">
               {[
-                [rupees(stats.savedPaise), "saved by neighbours so far"],
-                [String(stats.confirmed), "group bookings confirmed"],
-                [String(stats.neighbours), "verified neighbours"],
-              ].map(([v, l], i) => (
-                <div key={l} className={`flex flex-col-reverse justify-end min-w-0 ${i === 0 ? "col-span-2 min-[420px]:col-span-1" : ""}`}>
-                  <dt className="text-[12px] sm:text-[13px] text-ink-500 leading-snug mt-1">{l}</dt>
-                  <dd className="tnum text-[22px] sm:text-[28px] font-extrabold tracking-tight whitespace-nowrap">{v}</dd>
-                </div>
+                "Private to verified residents",
+                "Separate committee and guard roles",
+                "Runs in any phone browser",
+              ].map((x) => (
+                <li key={x}>{x}</li>
               ))}
-            </dl>
+            </ul>
           </div>
 
-          <div id="ladder" className="scroll-mt-24">
-            <LadderDemo services={ladder} initialId={ac?.id} />
+          <HeroIllustration />
+        </div>
+      </section>
+
+      {/* -------------------------------------------------------- features */}
+      <section id="features" aria-labelledby="features-title" className="scroll-mt-20 bg-surface border-y border-line">
+        {/* Older links pointed at #how. */}
+        <span id="how" className="block scroll-mt-20" aria-hidden="true" />
+        <div className={`${WRAP} py-16 sm:py-24`}>
+          <div className="grid lg:grid-cols-[1fr_1fr] gap-6 lg:gap-16 items-end [&>*]:min-w-0">
+            <SectionHead
+              id="features-title"
+              eyebrow="What’s in JODO"
+              title="The four things every society office handles, every week."
+            />
+            <p className="mk-lede text-[17px] text-ink-700 leading-relaxed lg:pb-1">
+              Each one is a shared workflow with a clear owner: the resident asks, the committee or guard acts, and both
+              see the same status. Nothing is lost in a chat scroll.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4 sm:gap-5 mt-10 sm:mt-14 [&>*]:min-w-0">
+            <Module
+              icon="gate"
+              title="Visitors & gate"
+              who="Residents · Guards"
+              points={[
+                "The guard logs a guest, delivery or home help against a flat.",
+                "The resident approves or denies from their phone.",
+                "The guard records check-in and check-out — a daily log the committee can review.",
+                "Expecting someone? Create a guest pass with a 12-character code that’s valid for 24 hours.",
+              ]}
+            >
+              <ul className="flex flex-col divide-y divide-line text-[13px]">
+                {[
+                  ["Delivery", "B-1204", "Approved", "ok"],
+                  ["Guest pass", "A-402", "Checked in", "quiet"],
+                  ["Home help", "C-801", "Waiting", "amber"],
+                ].map(([k, flat, s, tone]) => (
+                  <li key={flat} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
+                    <span className="min-w-0 truncate">
+                      <strong className="font-semibold">{k}</strong> <span className="tnum text-ink-500">· {flat}</span>
+                    </span>
+                    <span className={`mk-chip mk-chip--${tone}`}>{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </Module>
+
+            <Module
+              icon="megaphone"
+              title="Notices, meetings & polls"
+              who="Committee · Residents"
+              points={[
+                "Post notices and pin the one everybody must read.",
+                "Schedule a meeting, collect RSVPs, then record attendance and publish the minutes.",
+                "Run a poll with two to six options — one vote per member, results counted live.",
+              ]}
+            >
+              <div className="flex flex-col gap-2 text-[13px]">
+                <p className="flex items-center gap-2 min-w-0">
+                  <span className="mk-chip mk-chip--quiet">Pinned</span>
+                  <span className="font-semibold truncate">Water supply off Sat, 10 am–1 pm</span>
+                </p>
+                <PollBar label="Repaint Tower B this year" pct={64} />
+                <PollBar label="Defer to next year" pct={36} quiet />
+              </div>
+            </Module>
+
+            <Module
+              icon="wallet"
+              title="Maintenance dues & accounts"
+              who="Committee · Residents"
+              points={[
+                "Issue each month’s dues to every flat, with line items.",
+                "Record payments received by UPI, bank transfer, cash or cheque — the flat gets a receipt.",
+                "Log expenses and vendor bills, note the bank balance, and share a monthly statement.",
+                "Remind flats with outstanding dues in the app.",
+              ]}
+            >
+              <dl className="grid grid-cols-2 gap-2 text-[13px]">
+                <div className="rounded-lg bg-canvas-alt p-3 min-w-0">
+                  <dt className="text-ink-500">Collected · Nov</dt>
+                  <dd className="tnum font-semibold text-[18px] mt-1">₹4,18,500</dd>
+                </div>
+                <div className="rounded-lg bg-canvas-alt p-3 min-w-0">
+                  <dt className="text-ink-500">Outstanding</dt>
+                  <dd className="tnum font-semibold text-[18px] mt-1">₹62,000</dd>
+                </div>
+              </dl>
+            </Module>
+
+            <Module
+              icon="wrench"
+              title="Complaints helpdesk"
+              who="Residents · Committee"
+              points={[
+                "Raise an issue by category — lift, water, electricity, parking, waste or security.",
+                "The committee assigns it to a staff member or team.",
+                "It moves from Open to Assigned to In progress to Resolved, with every update kept on record.",
+              ]}
+            >
+              <div className="text-[13px]">
+                <p className="flex items-center justify-between gap-3">
+                  <span className="font-semibold truncate min-w-0">Lift stuck at 7th floor · Tower A</span>
+                  <span className="mk-chip mk-chip--quiet">In progress</span>
+                </p>
+                <div className="mk-track mt-3" aria-hidden="true">
+                  <span data-on="true" />
+                  <span data-on="true" />
+                  <span data-on="true" />
+                  <span />
+                </div>
+                <p className="text-ink-500 mt-2">Assigned to: Lift AMC team</p>
+              </div>
+            </Module>
+          </div>
+
+          <ul className="grid sm:grid-cols-3 gap-4 sm:gap-5 mt-4 sm:mt-5">
+            {(
+              [
+                ["calendar", "Amenity reservations", "Book the clubhouse, hall or court for a time slot. Overlapping bookings are refused, so there’s no double-booking."],
+                ["bell", "One notification centre", "Visitor requests, new notices and dues reminders land in the app’s notification centre."],
+                ["chart", "Committee dashboard", "Dues collected this month, outstanding dues, open complaints and today’s visitors at a glance."],
+              ] as const
+            ).map(([icon, t, b]) => (
+              <li key={t} className="card p-5 sm:p-6 bg-canvas flex gap-4">
+                <span className="mk-icon-tile">
+                  <Glyph name={icon} />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-[16px] font-semibold">{t}</h3>
+                  <p className="text-[14px] text-ink-700 leading-relaxed mt-1">{b}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* ----------------------------------------------------------- roles */}
+      <section id="roles" aria-labelledby="roles-title" className="scroll-mt-20 mk-navy">
+        <div className={`${WRAP} py-16 sm:py-24`}>
+          <p className="text-[13px] font-medium text-white/70 mb-3">Who it’s for</p>
+          <h2 id="roles-title" className="mk-h2 max-w-3xl">
+            One app, three views. Each person sees what their job needs.
+          </h2>
+          <div className="grid md:grid-cols-3 gap-4 sm:gap-5 mt-10 sm:mt-12">
+            {(
+              [
+                [
+                  "profile",
+                  "Residents",
+                  "From the flat",
+                  [
+                    "Approve or deny visitors waiting at the gate",
+                    "Create guest passes for expected visitors",
+                    "Read notices, RSVP to meetings and vote in polls",
+                    "See maintenance bills, payments and receipts",
+                    "Raise complaints and follow their status",
+                    "Reserve amenities",
+                  ],
+                ],
+                [
+                  "society",
+                  "Committee",
+                  "Secretary and members",
+                  [
+                    "Publish and pin notices; schedule meetings and record minutes",
+                    "Issue monthly dues and record collections",
+                    "Track expenses, vendor bills and the bank balance",
+                    "Assign complaints and update their progress",
+                    "Give security staff access to the gate log",
+                    "Review flat requests and update resident access",
+                    ...(demo ? ["Approve home-service groups before they go live"] : []),
+                  ],
+                ],
+                [
+                  "shield",
+                  "Security guard",
+                  "At the gate",
+                  [
+                    "Lands straight on the visitor log after signing in",
+                    "Logs guests, deliveries and home help against a flat",
+                    "Sees the resident’s decision as soon as it’s made",
+                    "Redeems guest-pass codes",
+                    "Records check-in and check-out",
+                  ],
+                ],
+              ] as const
+            ).map(([icon, role, sub, items]) => (
+              <article key={role} className="rounded-2xl bg-white/[0.04] border border-white/10 p-6 flex flex-col">
+                <span className="grid place-items-center w-10 h-10 rounded-[10px] bg-white/10 text-white/85">
+                  <Glyph name={icon} />
+                </span>
+                <h3 className="text-[20px] font-semibold mt-5">{role}</h3>
+                <p className="text-[14px] text-white/70">{sub}</p>
+                <ul className="mt-5 flex flex-col gap-3 text-[15px] text-white/85">
+                  {items.map((x) => (
+                    <li key={x} className="flex gap-3 leading-snug">
+                      <span aria-hidden="true" className="mt-[7px] w-1.5 h-1.5 shrink-0 rounded-full bg-white/40" />
+                      {x}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* ------------------------------------------------- story + how it works */}
-      <section id="how" aria-labelledby="how-title" className="scroll-mt-20 bg-surface border-y border-line">
-        <div className={`${WRAP} py-16 sm:py-24`}>
-          <div className="grid lg:grid-cols-[1fr_1fr] gap-10 lg:gap-16 items-end [&>*]:min-w-0">
-            <SectionHead
-              id="how-title"
-              eyebrow="How it works"
-              title="Every tower books the same jobs. Just one flat at a time."
-            />
-            <p className="mk-lede text-[17px] text-ink-700 leading-relaxed lg:pb-2">
-              Two hundred flats, forty ACs due before summer, and each one booked separately — forty visits, forty
-              quotes, forty technicians stuck in the same traffic. JODO turns that into one group, one day and one price
-              that gets better for everybody each time a neighbour says yes.
+      {/* ---------------------------------------------- dues walkthrough */}
+      <section aria-labelledby="dues-title" className={`${WRAP} py-16 sm:py-24`}>
+        <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-10 lg:gap-16 items-start [&>*]:min-w-0">
+          <div className="lg:sticky lg:top-24">
+            <SectionHead id="dues-title" eyebrow="A month of maintenance" title="Dues that both sides can check." />
+            <p className="mk-lede text-[17px] text-ink-700 leading-relaxed mt-5">
+              Residents see exactly what was billed, what was recorded against their flat and the receipt. The committee
+              sees who is outstanding and where the money went — without rebuilding a spreadsheet every month.
+            </p>
+            <p className="mt-6 rounded-xl border border-line bg-surface p-4 text-[14px] text-ink-700 leading-relaxed">
+              <strong className="font-semibold text-ink-900">JODO keeps the record; it doesn’t collect the money.</strong>{" "}
+              Residents keep paying the way your society already accepts, and the committee records each payment.
             </p>
           </div>
-
-          <figure className="relative mt-10 sm:mt-14 rounded-[28px] overflow-hidden bg-[#132c24]">
-            <Image
-              src="/marketing/society-towers-night.webp"
-              alt="Apartment towers of a gated society in Bengaluru at night, dozens of windows lit"
-              width={1600}
-              height={1013}
-              sizes="(min-width: 1200px) 1136px, 100vw"
-              className="w-full h-[300px] sm:h-[420px] lg:h-[520px] object-cover object-[center_40%]"
-            />
-            <div
-              aria-hidden="true"
-              className="absolute inset-0 bg-gradient-to-t from-[#132c24]/90 via-[#132c24]/25 to-transparent"
-            />
-            <figcaption className="absolute left-0 right-0 bottom-0 p-5 sm:p-8 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 text-white">
-              <p className="text-[20px] sm:text-[28px] font-extrabold tracking-tight leading-tight max-w-md">
-                Twelve flats, one tower, one Sunday.
-              </p>
-              <ul aria-label="Example group activity" className="flex flex-wrap gap-2 text-[12px] sm:text-[13px] font-bold">
-                {["B-1204 joined", "A-402 joined", "C-801 joined"].map((x) => (
-                  <li key={x} className="rounded-full bg-white/12 backdrop-blur px-3 py-1.5">
-                    <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-[#dce99e] mr-1.5 align-middle" />
-                    {x}
-                  </li>
-                ))}
-                <li className="rounded-full bg-[#dce99e] text-[#132c24] px-3 py-1.5">Price dropped</li>
-              </ul>
-            </figcaption>
-          </figure>
-
-          <ol className="grid md:grid-cols-3 gap-px bg-line mt-10 sm:mt-14 rounded-[20px] overflow-hidden border border-line">
+          <ol className="flex flex-col gap-3">
             {[
-              [
-                "Someone starts a group",
-                "A resident or the secretary picks a service and a day — “AC service, this Sunday”. Everyone in the society gets it, and it goes to the WhatsApp group in one tap.",
-              ],
-              [
-                "Neighbours join, the price falls",
-                "Each flat that joins moves the whole building down a published ladder. Nothing is charged yet, and the first flat pays the same final price as the last.",
-              ],
-              [
-                "One vendor, one day",
-                "At the deadline the group locks. One verified crew works through the tower slot by slot, and you close your job with a code only when you're happy.",
-              ],
-            ].map(([title, body], i) => (
-              <li key={title} className="bg-surface p-6 sm:p-8">
-                <span className="tnum text-[13px] font-extrabold text-brand-700">0{i + 1}</span>
-                <h3 className="text-[20px] font-extrabold tracking-tight mt-3 mb-2">{title}</h3>
-                <p className="text-[15px] text-ink-700 leading-relaxed">{body}</p>
+              ["Issue", "The committee issues the month’s dues to every verified flat, with line items such as maintenance and sinking fund."],
+              ["Pay", "The resident pays the society by UPI, bank transfer, cash or cheque, as they do today."],
+              ["Record", "The committee records the payment, method and reference against the flat’s bill."],
+              ["Receipt", "The resident sees the bill marked paid and can open the receipt."],
+              ["Report", "Expenses and vendor bills sit beside collections in a monthly statement, with the reported bank balance."],
+            ].map(([t, b], i) => (
+              <li key={t} className="card p-5 sm:p-6 flex gap-4 items-start">
+                <span className="tnum grid place-items-center w-8 h-8 shrink-0 rounded-full bg-canvas-alt text-ink-700 text-[14px] font-medium">
+                  {i + 1}
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-[17px] font-semibold">{t}</h3>
+                  <p className="text-[15px] text-ink-700 leading-relaxed mt-1">{b}</p>
+                </div>
               </li>
             ))}
           </ol>
         </div>
       </section>
 
-      {/* ------------------------------------------------------ economics */}
-      {ac && acBest && (
-        <section aria-labelledby="why-title" className={`${WRAP} py-16 sm:py-24 grid lg:grid-cols-[1fr_1.1fr] gap-10 lg:gap-16 items-center [&>*]:min-w-0`}>
+      {/* ------------------------------------------------- home services */}
+      {demo && <section id="services" aria-labelledby="services-title" className="scroll-mt-20 bg-surface border-y border-line">
+        <span id="ladder" className="block scroll-mt-20" aria-hidden="true" />
+        <div className={`${WRAP} py-16 sm:py-20 grid lg:grid-cols-[1fr_1.1fr] gap-10 lg:gap-16 items-center [&>*]:min-w-0`}>
           <div>
-            <SectionHead
-              id="why-title"
-              eyebrow="Why it's cheaper"
-              title="Fewer trips bring down the price."
-            />
-            <p className="mk-lede text-[17px] text-ink-700 leading-relaxed mt-5">
-              Travel and scheduling take time. When neighbours book twelve AC services in the same building,
-              a technician can spend more of the day on the jobs and offer each flat a lower price.
+            <SectionHead id="services-title" eyebrow="Also in JODO" title="Book home services together with neighbours." />
+            <p className="mk-lede text-[16px] sm:text-[17px] text-ink-700 leading-relaxed mt-5">
+              AC servicing, deep cleaning and other routine jobs can be booked as a group: one verified vendor, one day,
+              and a published price ladder that falls as more flats join. Everyone pays the final group price, and the
+              committee can choose to approve each group before it opens.
             </p>
-          </div>
-          <div>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <EconCard
-                tone="quiet"
-                label="Booking flat by flat"
-                jobs={3}
-                rows={[
-                  ["Jobs in a day", "3"],
-                  ["Time on the road", "~3 hours"],
-                  ["Price per AC", rupees(ac.listPricePaise)],
-                ]}
-              />
-              <EconCard
-                tone="save"
-                label="Your building, together"
-                jobs={exampleGroupSize}
-                rows={[
-                  ["Jobs in a day", String(exampleGroupSize)],
-                  ["Time on the road", "one trip"],
-                  ["Price per AC", rupees(currentPrice(ac.listPricePaise, ac.defaultSlabs, exampleGroupSize))],
-                ]}
-              />
+            <div className="flex flex-wrap gap-x-6 gap-y-3 mt-6 text-[15px] font-semibold">
+              <Link href="/help#home-services" className="text-brand-700 hover:underline underline-offset-4">
+                How group booking works <span aria-hidden="true">→</span>
+              </Link>
+              <Link href="/partners" className="text-brand-700 hover:underline underline-offset-4">
+                For service partners <span aria-hidden="true">→</span>
+              </Link>
             </div>
-            <p className="text-[12px] text-ink-500 mt-3">
-              Illustrative, from our launch model for AC service. Every group shows its own ladder before you join.
-            </p>
           </div>
-        </section>
-      )}
-
-      {/* -------------------------------------------------------- services */}
-      <section id="services" aria-labelledby="services-title" className="scroll-mt-20 bg-surface border-y border-line">
-        <div className={`${WRAP} py-16 sm:py-24`}>
-          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
-            <SectionHead
-              id="services-title"
-              eyebrow="Services"
-              title="Jobs that can wait a few days — and get much cheaper for it."
-            />
-            <a href="#ladder" className="text-[15px] font-bold text-brand-700 hover:underline underline-offset-4 shrink-0">
-              Try any ladder above <span aria-hidden="true">↑</span>
-            </a>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-10">
-            {skus.map((s) => {
-              const sorted = [...s.defaultSlabs].sort((a, b) => a.minFlats - b.minFlats);
-              const best = sorted.at(-1);
-              if (!best) return null;
-              const pct = Math.round(((s.listPricePaise - best.pricePaise) / s.listPricePaise) * 100);
-              const steps = [s.listPricePaise, ...sorted.map((x) => x.pricePaise)];
-              return (
-                <article key={s.id} className="card p-6 flex flex-col bg-canvas">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="eyebrow">{s.category}</p>
-                    <span className="rounded-full bg-[#dce99e] text-[#132c24] text-[12px] font-extrabold px-2.5 py-1 tnum">
-                      −{pct}%
-                    </span>
-                  </div>
-                  <h3 className="text-[18px] font-extrabold tracking-tight mt-3 leading-snug">{s.name}</h3>
-                  <div className="flex items-end gap-2 mt-5">
-                    <span className="tnum text-[32px] font-extrabold tracking-tight text-brand-700 leading-none">
-                      {rupees(best.pricePaise)}
-                    </span>
-                    <span className="tnum text-ink-500 line-through text-sm pb-0.5">{rupees(s.listPricePaise)}</span>
-                  </div>
-                  <p className="text-[13px] text-ink-500 mt-1.5">
-                    per {s.unitLabel} at {best.minFlats}+ {basisOf(s)}
-                  </p>
-                  {/* The ladder as a falling staircase, solo price first. */}
-                  <div aria-hidden="true" className="flex items-end gap-1 h-12 mt-5">
-                    {steps.map((p, i) => (
-                      <span
-                        key={i}
-                        className={`flex-1 rounded-t-[4px] ${i === steps.length - 1 ? "bg-brand-600" : "bg-line"}`}
-                        style={{ height: `${Math.max(18, (p / s.listPricePaise) * 100)}%` }}
-                      />
-                    ))}
-                  </div>
-                  <ul className="text-[13px] text-ink-700 mt-5 flex flex-col gap-1.5">
-                    {s.included.slice(0, 3).map((x) => (
-                      <li key={x} className="flex gap-2">
-                        <span aria-hidden="true" className="text-brand-600 font-bold">✓</span>
-                        {x}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="text-[12px] text-ink-500 mt-auto pt-5">Best season: {s.season}</p>
-                </article>
-              );
-            })}
-          </div>
-          <p className="text-[14px] text-ink-500 mt-6">
-            Coming next: water-tank cleaning, painting, appliance AMCs and RO service.
-          </p>
+          {services.length > 0 && (
+            <div className="card bg-canvas overflow-hidden">
+              <table className="w-full text-[14px]">
+                <caption className="sr-only">Current catalogue: solo price and best group price per service</caption>
+                <thead>
+                  <tr className="text-left text-[12px] text-ink-500">
+                    <th scope="col" className="font-medium px-4 sm:px-5 py-3">Service</th>
+                    <th scope="col" className="font-medium px-2 py-3 text-right">Solo</th>
+                    <th scope="col" className="font-medium px-4 sm:px-5 py-3 text-right">In a group</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {services.map(({ sku, best }) => (
+                    <tr key={sku.id} className="border-t border-line align-top">
+                      <th scope="row" className="text-left font-semibold px-4 sm:px-5 py-4">
+                        {sku.name}
+                        <span className="block text-[12px] font-normal text-ink-500 mt-1">
+                          per {sku.unitLabel} · group price at {best.minFlats}+ {basisOf(sku)}
+                        </span>
+                      </th>
+                      <td className="tnum px-2 py-4 text-right text-ink-500 whitespace-nowrap">{rupees(sku.listPricePaise)}</td>
+                      <td className="tnum px-4 sm:px-5 py-4 text-right font-semibold text-brand-700 whitespace-nowrap">
+                        {rupees(best.pricePaise)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-      </section>
+      </section>}
 
-      {/* -------------------------------------------------------- promises */}
-      <section id="promises" aria-labelledby="promises-title" className={`scroll-mt-20 ${WRAP} py-16 sm:py-24`}>
-        <SectionHead id="promises-title" eyebrow="Our promises" title="Written into the code, not the small print." />
+      {/* ------------------------------------------------- expectations */}
+      <section id="trust" aria-labelledby="trust-title" className={`scroll-mt-20 ${WRAP} py-16 sm:py-24`}>
+        <span id="promises" className="block scroll-mt-20" aria-hidden="true" />
+        <SectionHead id="trust-title" eyebrow="Good to know" title="What JODO does today, plainly." />
         <dl className="grid sm:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-10 mt-12">
           {[
-            ["One price for everyone", "The first flat to join pays exactly what the last one pays — the final group price."],
-            ["The price only falls", "A vendor can't raise a ladder once anyone has joined. If a neighbour leaves, your price is held."],
-            ["Pay once your group confirms", "We authorise your payment when you join and release the hold if the group misses its minimum."],
-            ["You close the job", "Technicians start with your code and finish with another — given only when you're happy. Then a warranty."],
+            ["Private to your society", "Only verified residents see your society’s notices, polls and neighbours. Each flat can be claimed by one verified account."],
+            ["Roles, not group admins", "Committee tools are only for committee members. Guards see the visitor log for their gate — not dues or complaints."],
+            ["Alerts inside the app", "Updates arrive in JODO’s notification centre. There are no SMS, WhatsApp or phone push alerts yet."],
+            ["Records you can trace", "Payments, complaint updates and visitor decisions are saved with who made them and when."],
           ].map(([t, b]) => (
-            <div key={t} className="border-t-2 border-ink-900 pt-5">
-              <dt className="text-[18px] font-extrabold tracking-tight">{t}</dt>
+            <div key={t} className="border-t border-line pt-5">
+              <dt className="text-[17px] font-semibold">{t}</dt>
               <dd className="text-[15px] text-ink-700 leading-relaxed mt-2">{b}</dd>
             </div>
           ))}
         </dl>
       </section>
 
-      {/* --------------------------------------------------- for societies */}
-      <section id="societies" aria-labelledby="societies-title" className="scroll-mt-20 mk-forest">
+      {/* ------------------------------------------------------- request */}
+      <section id="request" aria-labelledby="request-title" className="scroll-mt-20 bg-canvas-alt border-y border-line">
+        <span id="societies" className="block scroll-mt-20" aria-hidden="true" />
         <div className={`${WRAP} py-16 sm:py-24 grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 [&>*]:min-w-0`}>
           <div>
-            <p className="text-[11px] font-extrabold tracking-[0.12em] uppercase text-[#dce99e] mb-4">
-              For secretaries &amp; committees
+            <SectionHead id="request-title" eyebrow="Get started" title="Bring JODO to your society." />
+            <p className="mk-lede text-[17px] text-ink-700 leading-relaxed mt-5">
+              Residents, secretaries and facility managers can all ask. Tell us a little about the society and we’ll call
+              to plan the setup with your committee.
             </p>
-            <h2 id="societies-title" className="mk-h2">
-              Stop running service drives on WhatsApp and a spreadsheet.
-            </h2>
-            <ul className="mt-8 flex flex-col gap-4 text-[16px] text-white/80">
+            <ol className="mt-8 flex flex-col gap-5">
               {[
-                "No cash to collect, no vendor to chase — residents pay JODO, the vendor is paid after the work.",
-                "Approve every group before it goes live, if your committee prefers.",
-                "A record of every job, every rating and every rupee your building saved.",
-                "Bring the vendors you already trust — we verify them and put them on the platform.",
-              ].map((x) => (
-                <li key={x} className="flex gap-3">
-                  <span aria-hidden="true" className="mt-1 w-5 h-5 shrink-0 rounded-full bg-[#dce99e] text-[#132c24] grid place-items-center text-[11px] font-extrabold">
-                    ✓
+                ["We call you", "We talk through your towers, flats, committee members and gate."],
+                ["We set up the society", "Committee roles and guard access are in place before residents arrive."],
+                ["Residents sign in", "Each resident signs in with their mobile number and claims their flat."],
+              ].map(([t, b], i) => (
+                <li key={t} className="flex gap-4">
+                  <span className="tnum grid place-items-center w-8 h-8 shrink-0 rounded-full bg-surface border border-line text-ink-700 text-[14px] font-medium">
+                    {i + 1}
                   </span>
-                  <span className="leading-relaxed">{x}</span>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[16px]">{t}</p>
+                    <p className="text-[15px] text-ink-700 leading-relaxed">{b}</p>
+                  </div>
                 </li>
               ))}
-            </ul>
+            </ol>
           </div>
-          <div className="bg-surface text-ink-900 border border-line rounded-[24px] p-5 sm:p-8 shadow-2xl shadow-black/20">
-            <h3 className="text-[24px] font-extrabold tracking-tight mb-1">Bring JODO to your society</h3>
-            <p className="text-[14px] text-ink-500 mb-6">
-              We set up your society, sign the vendors and seed the first group with you. Free for societies.
-            </p>
+          <div className="bg-surface text-ink-900 border border-line rounded-2xl p-5 sm:p-8">
+            <h3 className="text-[22px] font-semibold mb-1">Request a setup call</h3>
+            <p className="text-[14px] text-ink-500 mb-6">All fields are required unless marked optional.</p>
             <SocietyLeadForm />
           </div>
         </div>
       </section>
 
-      {/* ----------------------------------------------------- for vendors */}
-      <section aria-labelledby="vendors-title" className={`${WRAP} py-16 sm:py-24`}>
-        <div className="rounded-[28px] border border-line bg-surface p-6 sm:p-10 lg:p-12 grid md:grid-cols-[1.5fr_1fr] gap-8 md:gap-12 items-center [&>*]:min-w-0">
-          <div>
-            <p className="eyebrow mb-4 !text-brand-700">For vendors</p>
-            <h2 id="vendors-title" className="mk-h2 !text-[28px] sm:!text-[38px]">
-              A full day of work in one building, paid the next day.
-            </h2>
-            <p className="mk-lede text-[16px] text-ink-700 leading-relaxed mt-4">
-              You publish your price ladder once. We fill the building, you send one crew. Commission is 12–18% — less
-              than lead-gen apps, because we hand you a day, not a lead.
-            </p>
-          </div>
-          <div className="flex flex-col gap-3">
-            <Link href="/partners" className="btn btn-primary h-12">
-              Become a partner
-            </Link>
-            <Link href="/partners#apply" className="btn mk-btn-outline h-12">
-              Go straight to the application
-            </Link>
-            <p className="text-[13px] text-ink-500 text-center">KYC, police verification and insurance required.</p>
-          </div>
-        </div>
-      </section>
-
       {/* ------------------------------------------------------------- faq */}
-      <section id="faq" aria-labelledby="faq-title" className="scroll-mt-20 bg-surface border-t border-line">
+      <section id="faq" aria-labelledby="faq-title" className="scroll-mt-20">
         <div className={`${WRAP} py-16 sm:py-24 grid lg:grid-cols-[1fr_1.6fr] gap-10 lg:gap-16 [&>*]:min-w-0`}>
           <div>
-            <SectionHead id="faq-title" eyebrow="Questions" title="What neighbours ask before they join." />
+            <SectionHead id="faq-title" eyebrow="Questions" title="What committees ask first." />
             <p className="text-[15px] text-ink-500 mt-5">
               More in{" "}
-              <Link href="/help" className="text-brand-700 font-bold underline underline-offset-2">
+              <Link href="/help" className="text-brand-700 font-semibold underline underline-offset-2">
                 Help
               </Link>
               .
@@ -363,34 +426,16 @@ export default async function Landing() {
           <FaqList items={FAQ} />
         </div>
       </section>
-
-      {/* --------------------------------------------------------- closing */}
-      <section aria-labelledby="closing-title" className="mk-grain">
-        <div className={`${WRAP} py-20 sm:py-28 text-center`}>
-          <h2 id="closing-title" className="mk-display text-[36px] sm:text-[56px] max-w-3xl mx-auto">
-            Your neighbours are booking the same thing anyway.
-          </h2>
-          <p className="text-[18px] text-ink-700 mt-5">
-            <span className="mk-mark font-bold text-ink-900">Book it together.</span>
-          </p>
-          <div className="flex flex-col min-[420px]:flex-row justify-center gap-3 mt-9">
-            <Link href="/login" className="btn btn-primary h-12 px-6 text-[16px]">
-              Find your society
-            </Link>
-            <Link href="#societies" className="btn mk-btn-outline h-12 px-6 text-[16px]">
-              Not listed? Request it
-            </Link>
-          </div>
-        </div>
-      </section>
     </MarketingShell>
   );
 }
 
+// ---------------------------------------------------------------- pieces
+
 function SectionHead({ id, eyebrow, title }: { id?: string; eyebrow: string; title: string }) {
   return (
     <div className="max-w-2xl">
-      <p className="eyebrow mb-4 !text-brand-700">{eyebrow}</p>
+      <p className="eyebrow mb-3">{eyebrow}</p>
       <h2 id={id} className="mk-h2">
         {title}
       </h2>
@@ -398,44 +443,223 @@ function SectionHead({ id, eyebrow, title }: { id?: string; eyebrow: string; tit
   );
 }
 
-function EconCard({
-  tone,
-  label,
-  jobs,
-  rows,
+function Module({
+  icon,
+  title,
+  who,
+  points,
+  children,
 }: {
-  tone: "quiet" | "save";
-  label: string;
-  /** Jobs in a day, drawn as a strip of slots. */
-  jobs: number;
-  rows: [string, string][];
+  icon: GlyphName;
+  title: string;
+  who: string;
+  points: string[];
+  children: React.ReactNode;
 }) {
-  const save = tone === "save";
   return (
-    <div className={`rounded-[20px] p-6 ${save ? "mk-forest" : "card"}`}>
-      <p className={`text-[11px] font-extrabold tracking-[0.1em] uppercase mb-4 ${save ? "text-[#dce99e]" : "text-ink-500"}`}>
-        {label}
-      </p>
-      <div aria-hidden="true" className="grid grid-cols-12 gap-1 mb-5">
-        {Array.from({ length: 12 }, (_, i) => (
-          <span
-            key={i}
-            className={`h-6 rounded-[3px] ${
-              i < jobs ? (save ? "bg-[#dce99e]" : "bg-ink-500") : save ? "bg-white/10" : "bg-canvas-alt"
-            }`}
-          />
-        ))}
+    <article className="card bg-canvas p-5 sm:p-7 flex flex-col min-w-0">
+      <div className="flex items-center gap-4">
+        <span className="mk-icon-tile">
+          <Glyph name={icon} />
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-[20px] font-semibold leading-tight">{title}</h3>
+          <p className="text-[13px] text-ink-500 mt-0.5">{who}</p>
+        </div>
       </div>
-      <dl className="flex flex-col gap-2.5">
-        {rows.map(([k, v], i) => (
-          <div key={k} className="flex justify-between items-baseline gap-3 text-[14px]">
-            <dt className={save ? "text-white/65" : "text-ink-500"}>{k}</dt>
-            <dd className={`tnum font-bold ${i === rows.length - 1 ? "text-[24px] font-extrabold tracking-tight" : ""} ${save && i === rows.length - 1 ? "text-[#dce99e]" : ""}`}>
-              {v}
-            </dd>
-          </div>
+      <ul className="mt-5 flex flex-col gap-2 text-[15px] text-ink-700">
+        {points.map((p) => (
+          <li key={p} className="flex gap-3 leading-relaxed">
+            <span aria-hidden="true" className="mt-[10px] w-1.5 h-1.5 shrink-0 rounded-full bg-ink-300" />
+            {p}
+          </li>
         ))}
-      </dl>
+      </ul>
+      {/* A small product sketch with sample data — decorative, the list above says it all. */}
+      <div aria-hidden="true" className="mt-auto pt-6">
+        <div className="mk-screen p-4">{children}</div>
+      </div>
+    </article>
+  );
+}
+
+function PollBar({ label, pct, quiet = false }: { label: string; pct: number; quiet?: boolean }) {
+  return (
+    <div>
+      <div className="flex justify-between gap-3">
+        <span className="truncate min-w-0">{label}</span>
+        <span className="tnum font-semibold">{pct}%</span>
+      </div>
+      <div className="h-1 rounded-sm bg-canvas-alt mt-1.5 overflow-hidden">
+        <div className={`h-full rounded-sm ${quiet ? "bg-ink-300" : "bg-brand-600"}`} style={{ width: `${pct}%` }} />
+      </div>
     </div>
+  );
+}
+
+/**
+ * The hero preview: JODO's guard, committee and resident screens with sample data,
+ * telling one short story. A delivery reaches the gate, the resident gets the same
+ * Approve entry / Deny entry card the app shows, and the helpdesk runs alongside.
+ * The flat number sits beside the gate status wherever it identifies the visit.
+ * Drawn in HTML so it follows light and dark mode.
+ */
+function HeroIllustration() {
+  return (
+    <figure className="m-0">
+      <div className="mk-stage p-3 sm:p-4">
+        <div aria-hidden="true" className="grid sm:grid-cols-[1fr_1.5fr] gap-3 items-start">
+          {/* Guard and helpdesk */}
+          <div className="order-2 sm:order-1 flex flex-col gap-3 sm:pt-10">
+            <div className="mk-screen overflow-hidden">
+              <div className="mk-screen__bar">
+                <span>Main gate</span>
+                <span>Guard</span>
+              </div>
+              <div className="p-3 text-[13px]">
+                <p className="text-ink-500 text-[12px]">New entry</p>
+                <p className="font-semibold text-[15px] mt-1">Ravi</p>
+                <p className="text-ink-500">Delivery · parcel</p>
+                <p className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="mk-flat">B-1204</span>
+                  <span className="mk-chip mk-chip--amber">Awaiting approval</span>
+                </p>
+              </div>
+            </div>
+            <div className="mk-screen hidden sm:block overflow-hidden">
+              <div className="mk-screen__bar">
+                <span>Helpdesk</span>
+                <span>Committee</span>
+              </div>
+              <div className="p-3 text-[13px]">
+                <p className="font-semibold leading-snug">Water leak in B-wing basement</p>
+                <div className="mk-track mt-3">
+                  <span data-on="true" />
+                  <span data-on="true" />
+                  <span />
+                  <span />
+                </div>
+                <p className="text-ink-500 text-[12px] mt-2">Assigned · Plumbing team</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Resident: the approval card is the one rich moment */}
+          <div className="order-1 sm:order-2 mk-screen overflow-hidden">
+            <div className="mk-screen__bar">
+              <span className="tnum">B-1204 · Home</span>
+              <span>Resident</span>
+            </div>
+            <div className="p-3 flex flex-col gap-3 text-[13px]">
+              <div className="rounded-[10px] border border-[var(--mk-amber-line)] border-s-[3px] border-s-[var(--mk-amber)] bg-[var(--mk-amber-soft)] p-3">
+                <p className="font-semibold text-[14px] text-ink-900">Visitor at the gate</p>
+                <p className="text-[12px] text-[var(--mk-amber-ink)]">Needs your answer</p>
+                <div className="rounded-lg bg-surface border border-[var(--mk-amber-line)] p-3 mt-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-semibold text-[15px] text-ink-900">Ravi</p>
+                    <span className="text-[12px] text-ink-500 shrink-0">just now</span>
+                  </div>
+                  <p className="text-ink-700 flex items-center gap-2 mt-1">
+                    Delivery <span className="mk-flat">Flat B-1204</span>
+                  </p>
+                  <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2 mt-3">
+                    <span className="rounded-full bg-save-600 text-white text-center text-[13px] font-medium py-2.5 px-1 whitespace-nowrap">Approve entry</span>
+                    <span className="rounded-full bg-danger-50 text-danger-600 text-center text-[13px] font-medium py-2.5 px-1 whitespace-nowrap">Deny entry</span>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-[10px] bg-canvas-alt p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium">Maintenance · November</p>
+                  <span className="mk-chip mk-chip--ok">Paid</span>
+                </div>
+                <p className="tnum font-semibold text-[20px] mt-1">₹3,450</p>
+                <p className="text-ink-500 text-[12px]">UPI · receipt available</p>
+              </div>
+              <div className="rounded-[10px] bg-canvas-alt p-3">
+                <div className="flex items-center gap-2">
+                  <span className="mk-chip mk-chip--quiet">Pinned</span>
+                  <p className="font-medium truncate min-w-0">AGM on Sunday, 11 am</p>
+                </div>
+                <p className="text-ink-500 text-[12px] mt-2">Clubhouse · 42 going</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption className="text-[12px] text-ink-500 mt-3 text-center lg:text-left">
+        Illustration of JODO’s guard, committee and resident screens, with sample data.
+      </figcaption>
+    </figure>
+  );
+}
+
+type GlyphName = "gate" | "megaphone" | "wallet" | "wrench" | "calendar" | "bell" | "chart" | "profile" | "society" | "shield";
+
+function Glyph({ name }: { name: GlyphName }) {
+  const paths: Record<GlyphName, React.ReactNode> = {
+    gate: (
+      <>
+        <path d="M4 21V8l8-5 8 5v13" />
+        <path d="M9 21v-7h6v7M2 21h20" />
+      </>
+    ),
+    megaphone: (
+      <>
+        <path d="M3 10v4a1 1 0 0 0 1 1h3l6 4V5L7 9H4a1 1 0 0 0-1 1Z" />
+        <path d="M17 8.5a5 5 0 0 1 0 7M19.5 6a8.5 8.5 0 0 1 0 12" />
+      </>
+    ),
+    wallet: (
+      <>
+        <path d="M4 7a2 2 0 0 1 2-2h11v4" />
+        <rect x="3" y="7" width="18" height="13" rx="2" />
+        <path d="M16 13.5h2" />
+      </>
+    ),
+    wrench: <path d="M14.5 6.5a4 4 0 0 0 5 5l-8.8 8.8a2.1 2.1 0 0 1-3-3l8.8-8.8a4 4 0 0 0-2-2ZM14.5 6.5 17 4" />,
+    calendar: (
+      <>
+        <rect x="3" y="4.5" width="18" height="16.5" rx="2" />
+        <path d="M3 9.5h18M8 2.5v4M16 2.5v4M8 14h3" />
+      </>
+    ),
+    bell: (
+      <>
+        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" />
+        <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+      </>
+    ),
+    chart: (
+      <>
+        <path d="M3 21h18" />
+        <rect x="5" y="11" width="3.5" height="7" rx="1" />
+        <rect x="10.25" y="6" width="3.5" height="12" rx="1" />
+        <rect x="15.5" y="13" width="3.5" height="5" rx="1" />
+      </>
+    ),
+    profile: (
+      <>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" />
+      </>
+    ),
+    society: (
+      <>
+        <path d="M4 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16" />
+        <path d="M14 9h5a1 1 0 0 1 1 1v11M2 21h20M7.5 8h3M7.5 12h3M7.5 16h3" />
+      </>
+    ),
+    shield: (
+      <>
+        <path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6Z" />
+        <path d="m9 12 2 2 4-4" />
+      </>
+    ),
+  };
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {paths[name]}
+    </svg>
   );
 }

@@ -1,18 +1,19 @@
 import type { Metadata } from "next";
 import { MarketingPage } from "@/components/marketing";
 import { VendorLeadForm } from "@/components/marketing-client";
+import { isDemoMode } from "@/lib/auth-mode";
 
 export const metadata: Metadata = {
-  title: "Become a vendor partner",
+  title: "Service partners",
   description:
-    "Get a full day of work in one residential society, paid the next day. JODO fills the building; you send one crew.",
+    "Register your interest in becoming a JODO service partner.",
 };
 
 const STEPS: [string, string][] = [
   ["Publish your price ladder", "Your list price and up to four group slabs — e.g. ₹999 solo, ₹749 at 10 ACs, ₹645 at 20. We suggest slabs from what similar crews charge."],
   ["We fill the building", "Residents join your group in the app. You see the count and what you'll earn in real time. The ladder can only get cheaper once anyone joins — never re-priced on you either."],
   ["One crew, one day", "At the deadline the group locks and you get a route sheet: flats, slots, units. Each job starts and ends with the resident's code."],
-  ["Paid T+1", "Settlement the next working day, minus commission. Disputes are held only for the job in question, never the whole day."],
+  ["Payout", "Your console shows each day’s commission and net payout. If a resident reports an issue, only that job is held while ops reviews it."],
 ];
 
 const NEEDS = [
@@ -23,16 +24,28 @@ const NEEDS = [
 ];
 
 export default function PartnersPage() {
+  if (!isDemoMode()) {
+    return (
+      <MarketingPage
+        title="Register as a service partner"
+        intro={<p>Tell us about your business and the areas you cover. JODO is collecting enquiries for a future booking release.</p>}
+      >
+        <section id="apply" aria-labelledby="apply-title" className="card p-5 sm:p-8 scroll-mt-24">
+          <h2 id="apply-title" className="text-xl font-semibold mb-4">Your business details</h2>
+          <VendorLeadForm />
+        </section>
+      </MarketingPage>
+    );
+  }
   return (
     <MarketingPage
       wide
-      eyebrow="For vendors"
-      title="A full day of work in one building, paid the next day."
+      eyebrow="Service partners"
+      title="Serve a whole society in one visit."
       intro={
         <p>
-          Your real cost is the road — three jobs a day, half of it in traffic, plus whatever it took to find each
-          customer. JODO hands you twelve flats in one tower on one Sunday. You charge each of them less and still
-          earn more for the day.
+          Societies use JODO to manage their gate, notices, dues and complaints. When residents book routine services
+          as a group, your crew sees the flats, time slots and work planned for the day.
         </p>
       }
       aside={
@@ -43,13 +56,13 @@ export default function PartnersPage() {
     >
       <dl className="grid sm:grid-cols-3 gap-4">
         {[
-          ["12–18%", "commission — less than lead-gen apps, because we hand you a day, not a lead"],
-          ["T+1", "payout after the service day, straight to your bank"],
-          ["₹0", "to list — no subscription to start"],
+          ["One building", "a whole group of flats on one date — less time on the road"],
+          ["Route sheet", "every flat, slot and unit for the day in your partner console"],
+          ["Payout view", "commission and net payout shown for each service day"],
         ].map(([v, l], i) => (
-          <div key={v} className={`rounded-[20px] p-6 flex flex-col-reverse justify-end ${i === 0 ? "mk-forest" : "card"}`}>
-            <dt className={`text-[14px] leading-snug mt-2 ${i === 0 ? "text-white/75" : "text-ink-700"}`}>{l}</dt>
-            <dd className={`tnum text-[40px] font-extrabold tracking-tight leading-none ${i === 0 ? "text-[#dce99e]" : "text-brand-700"}`}>
+          <div key={v} className={`rounded-[20px] p-6 flex flex-col-reverse justify-end ${i === 0 ? "mk-navy" : "card"}`}>
+            <dt className={`text-[14px] leading-snug mt-2 ${i === 0 ? "text-white/80" : "text-ink-700"}`}>{l}</dt>
+            <dd className={`text-[28px] sm:text-[30px] font-extrabold tracking-tight leading-tight ${i === 0 ? "text-white" : "text-brand-700"}`}>
               {v}
             </dd>
           </div>
@@ -94,7 +107,7 @@ export default function PartnersPage() {
           <h2 id="apply-title" className="text-[26px] font-extrabold tracking-tight mb-1">
             Apply to be a partner
           </h2>
-          <p className="text-[14px] text-ink-500 mb-6">Our supply team calls every applicant within two working days.</p>
+          <p className="text-[14px] text-ink-500 mb-6">Use fictional details to try the demo form.</p>
           <VendorLeadForm />
         </section>
       </div>

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS gate_pass (
   createdAt TEXT NOT NULL,
   expiresAt TEXT NOT NULL,
   usedAt TEXT,
+  revokedAt TEXT,
   UNIQUE (societyId, codeHash)
 );
 
@@ -30,7 +31,9 @@ CREATE TABLE IF NOT EXISTS gate_visit (
   checkedInBy TEXT REFERENCES user(id),
   checkedInAt TEXT,
   checkedOutBy TEXT REFERENCES user(id),
-  checkedOutAt TEXT
+  checkedOutAt TEXT,
+  cancelledAt TEXT,
+  cancelledBy TEXT REFERENCES user(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_gate_visit_society ON gate_visit(societyId, createdAt);

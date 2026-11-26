@@ -13,16 +13,22 @@ import { track } from "@/lib/analytics";
 import { isLang } from "@/lib/i18n";
 import { LeadError, createLead, markLead } from "@/lib/leads";
 import { assertCan, ForbiddenError } from "@/lib/authz";
+import { isDemoMode } from "@/lib/auth-mode";
 import { dealReturnHref, dealReturnPath } from "@/lib/deal-return";
+import { AccountLinkError } from "@/lib/account-link";
 import {
-  ResidencyError, claimResidency, createSession, destroySession, findOrCreateUser, isValidPhone,
-  otpAttemptAllowed, otpAttemptsReset, requireMe,
+  beginEmailLink, clearEmailSignIn, emailAuthEnabled, findEmailUser, linkVerifiedEmail, normalizeSignInEmail, requireEmailLink,
+} from "@/lib/email-auth";
+import { clearGoogleSignIn, linkVerifiedGoogle, requireGoogleLink } from "@/lib/google-auth";
+import { normalizePhone, SIGN_IN_UNAVAILABLE, smsAuth } from "@/lib/phone-auth";
+import {
+  ResidencyError, claimResidency, createSession, destroySession, findOrCreateUser, getMe, requireMe, signInDestination,
 } from "@/lib/session";
 import type { Slab } from "@/lib/types";
 
 export type ActionState = { error?: string; ok?: string };
-
-const DEV_OTP = "1234";
+export type SignInCodeState = ActionState & { phone?: string; sentAt?: number };
+export type EmailSignInCodeState = ActionState & { email?: string; sentAt?: number };
 
 function fail(e: unknown): ActionState {
   if (e instanceof DealError || e instanceof ForbiddenError || e instanceof ResidencyError || e instanceof LeadError) {
@@ -35,51 +41,170 @@ function fail(e: unknown): ActionState {
 
 // ------------------------------------------------------------------- auth
 
-export async function verifyOtp(_prev: ActionState, form: FormData): Promise<ActionState> {
-  const phone = String(form.get("phone") ?? "").replace(/\D/g, "");
-  const otp = String(form.get("otp") ?? "").trim();
-  // Without this a blank number and the right code signed in as a user with no phone.
-  if (!isValidPhone(phone)) return { error: "Enter a 10-digit mobile number." };
-  if (!otpAttemptAllowed(phone)) {
-    return { error: "Too many attempts. Try again in a few minutes." };
+async function clearAlternateSignIns() {
+  // Clean up both proofs in order so each cookie mutation is visible to Next.
+  await clearGoogleSignIn().catch(() => {});
+  await clearEmailSignIn().catch(() => {});
+}
+
+async function requireSignInLink(form: FormData) {
+  const google = form.get("googleLinkId");
+  const email = form.get("emailLinkId");
+  if (google !== null && email !== null) throw new AccountLinkError("Choose one sign-in method and try again.");
+  if (google !== null) return { id: (await requireGoogleLink(google)).id, verify: linkVerifiedGoogle };
+  if (email !== null) return { id: (await requireEmailLink(email)).id, verify: linkVerifiedEmail };
+}
+
+function signInLinkError(error: unknown) {
+  return { error: error instanceof AccountLinkError ? error.message : SIGN_IN_UNAVAILABLE };
+}
+
+function signInCaptcha(form: FormData) {
+  const token = form.get("cf-turnstile-response");
+  return typeof token === "string" && token.length <= 2048 ? token : undefined;
+}
+
+async function completeSignIn(
+  phone: string, next: string | undefined, link?: Awaited<ReturnType<typeof requireSignInLink>>,
+): Promise<ActionState> {
+  let destination: string | null;
+  try {
+    const user = await findOrCreateUser(phone);
+    destination = await signInDestination(user, next);
+    if (!destination) return { error: "This guard account has no active access. Contact your society committee." };
+    if (link) await link.verify(link.id, user.id);
+    if (!isDemoMode()) await clearAlternateSignIns();
+    await createSession(user.id);
+  } catch (error) {
+    if (error instanceof AccountLinkError) return signInLinkError(error);
+    console.error("Sign-in could not create a JODO session", error instanceof Error ? error.name : "UnknownError");
+    return { error: SIGN_IN_UNAVAILABLE };
   }
-  if (otp !== DEV_OTP) return { error: `Wrong code. In this build the code is always ${DEV_OTP}.` };
-  otpAttemptsReset(phone);
-  const user = await findOrCreateUser(phone);
-  if (user.role === "guard" && !(await one("SELECT userId FROM guard_assignment WHERE userId = ? AND isActive = 1", user.id))) {
-    return { error: "This guard account does not have active access. Contact your society committee." };
+  redirect(destination);
+}
+
+export async function sendSignInCode(_previous: SignInCodeState, form: FormData): Promise<SignInCodeState> {
+  const phone = normalizePhone(form.get("phone"));
+  if (!phone) return { error: "Enter a valid 10-digit Indian mobile number." };
+  const auth = isDemoMode() ? null : smsAuth();
+  if (!auth) return { error: SIGN_IN_UNAVAILABLE };
+  try { await requireSignInLink(form); }
+  catch (error) { return signInLinkError(error); }
+  const captchaToken = signInCaptcha(form);
+  if (process.env.JODO_TURNSTILE_SITE_KEY?.trim() && !captchaToken) {
+    return { error: "Complete the security check to request a code." };
   }
-  await createSession(user.id);
-  const residency = await one("SELECT id FROM residency WHERE userId = ?", user.id);
-  if (user.role === "vendor") redirect("/vendor");
-  if (user.role === "ops") redirect("/ops");
-  if (user.role === "guard") redirect("/society/visitors");
-  const next = dealReturnPath(form.get("next"));
-  redirect(residency ? next ?? "/" : dealReturnHref("/onboarding", next));
+  const { error } = await auth.signInWithOtp({ phone: "+91" + phone, options: { captchaToken } });
+  if (!error) return { phone, sentAt: Date.now() };
+  if (error.status === 429) return { error: "Wait a minute before requesting another code." };
+  if (error.code === "captcha_failed") return { error: "The security check expired. Complete it again to request a code." };
+  return { error: "We couldn’t send a code. Check your number or try again in a moment." };
+}
+
+export async function verifyOtp(_previous: ActionState, form: FormData): Promise<ActionState> {
+  const phone = normalizePhone(form.get("phone"));
+  const code = form.get("otp");
+  if (!phone) return { error: "Enter a valid 10-digit Indian mobile number." };
+  if (typeof code !== "string" || !/^\d{6}$/.test(code.trim())) return { error: "Enter the 6-digit code from your SMS." };
+  const auth = isDemoMode() ? null : smsAuth();
+  if (!auth) return { error: SIGN_IN_UNAVAILABLE };
+  let link;
+  try { link = await requireSignInLink(form); }
+  catch (error) { return signInLinkError(error); }
+  const { data, error } = await auth.verifyOtp({ phone: "+91" + phone, token: code.trim(), type: "sms" });
+  if (error?.status === 429) return { error: "Too many attempts. Wait a few minutes, then request a new code." };
+  if (error && (!error.status || error.status >= 500)) return { error: SIGN_IN_UNAVAILABLE };
+  if (error || !data.session || !data.user?.phone_confirmed_at || normalizePhone(data.user.phone) !== phone) {
+    return { error: "That code is invalid or expired. Check the SMS or request a new one." };
+  }
+  return completeSignIn(phone, dealReturnPath(form.get("next")), link);
+}
+
+export async function sendEmailSignInCode(
+  _previous: EmailSignInCodeState, form: FormData,
+): Promise<EmailSignInCodeState> {
+  const email = normalizeSignInEmail(form.get("email"));
+  if (!email) return { error: "Enter a valid email address." };
+  const auth = emailAuthEnabled() ? smsAuth() : null;
+  if (!auth) return { error: SIGN_IN_UNAVAILABLE };
+  const captchaToken = signInCaptcha(form);
+  if (process.env.JODO_TURNSTILE_SITE_KEY?.trim() && !captchaToken) {
+    return { error: "Complete the security check to request a code." };
+  }
+  const { error } = await auth.signInWithOtp({ email, options: { captchaToken } });
+  if (!error) return { email, sentAt: Date.now() };
+  if (error.status === 429) return { error: "Wait a minute before requesting another code." };
+  if (error.code === "captcha_failed") return { error: "The security check expired. Complete it again to request a code." };
+  return { error: "We couldn’t send a code. Check your email address or try again in a moment." };
+}
+
+export async function verifyEmailSignInCode(_previous: ActionState, form: FormData): Promise<ActionState> {
+  const email = normalizeSignInEmail(form.get("email"));
+  const code = form.get("otp");
+  if (!email) return { error: "Enter a valid email address." };
+  if (typeof code !== "string" || !/^\d{6}$/.test(code.trim())) return { error: "Enter the 6-digit code from your email." };
+  const auth = emailAuthEnabled() ? smsAuth() : null;
+  if (!auth) return { error: SIGN_IN_UNAVAILABLE };
+  if (await getMe()) redirect("/");
+
+  const { data, error } = await auth.verifyOtp({ email, token: code.trim(), type: "email" });
+  if (error?.status === 429) return { error: "Too many attempts. Wait a few minutes, then request a new code." };
+  if (error && (!error.status || error.status >= 500)) return { error: SIGN_IN_UNAVAILABLE };
+  if (error || !data.session || !data.user?.email_confirmed_at || normalizeSignInEmail(data.user.email) !== email) {
+    return { error: "That code is invalid or expired. Check the email or request a new one." };
+  }
+  let destination: string;
+  try {
+    const user = await findEmailUser(email);
+    await clearAlternateSignIns();
+    if (user) {
+      const target = await signInDestination(user);
+      if (!target) return { error: "This account has no active access. Contact your society committee." };
+      await createSession(user.id);
+      destination = target;
+    } else {
+      await beginEmailLink(email);
+      destination = "/login";
+    }
+  } catch (error) {
+    console.error("Email sign-in could not complete", error instanceof Error ? error.name : "UnknownError");
+    return { error: SIGN_IN_UNAVAILABLE };
+  }
+  redirect(destination);
+}
+
+export async function openDemoAccount(_previous: ActionState, form: FormData): Promise<ActionState> {
+  if (!isDemoMode()) return { error: "Demo accounts are unavailable here." };
+  const phone = normalizePhone(form.get("phone"));
+  if (!phone) return { error: "Choose a test account or enter a valid 10-digit test number." };
+  return completeSignIn(phone, dealReturnPath(form.get("next")));
 }
 
 export async function signOut() {
   await destroySession();
+  await clearAlternateSignIns();
   redirect("/login");
 }
 
 export async function saveResidency(_prev: ActionState, form: FormData): Promise<ActionState> {
+  let status: "pending" | "verified";
   try {
     const me = await requireMe();
     if (me.user.role !== "resident" && me.user.role !== "secretary") {
-      return { error: "Sign in with a resident account to verify a flat." };
+      return { error: "Sign in with a resident account to request flat verification." };
     }
-    await claimResidency({
+    ({ status } = await claimResidency({
       userId: me.user.id,
       name: String(form.get("name") ?? ""),
       societyId: String(form.get("societyId") ?? ""),
       flat: String(form.get("flat") ?? ""),
       type: String(form.get("type") ?? "owner") === "tenant" ? "tenant" : "owner",
-    });
+    }));
   } catch (e) {
     return fail(e);
   }
-  redirect(dealReturnPath(form.get("next")) ?? "/");
+  const next = dealReturnPath(form.get("next"));
+  redirect(status === "verified" ? next ?? "/" : dealReturnHref("/onboarding", next));
 }
 
 // ------------------------------------------------------------------ deals
@@ -137,7 +262,7 @@ export async function createDealAction(_prev: ActionState, form: FormData): Prom
   let dealId: string;
   try {
     const me = await requireMe();
-    if (!me.residency) return { error: "Verify your flat first." };
+    if (me.residency?.status !== "verified") return { error: "Verify your flat first." };
     dealId = await createDeal({
       societyId: me.residency.societyId,
       skuId: String(form.get("skuId")),
@@ -391,7 +516,7 @@ export async function submitSocietyLead(_prev: ActionState, form: FormData): Pro
     });
     await track(null, "lead_society", { duplicate });
     revalidatePath("/ops");
-    return { ok: duplicate ? "We already have your request — we'll call you soon." : "Thanks — we'll call you within two working days." };
+    return { ok: duplicate ? "Your request is already on file." : "Your society setup request was received." };
   } catch (e) {
     return fail(e);
   }
@@ -413,7 +538,7 @@ export async function submitVendorLead(_prev: ActionState, form: FormData): Prom
     });
     await track(null, "lead_vendor", { duplicate, services });
     revalidatePath("/ops");
-    return { ok: duplicate ? "We already have your application — we'll be in touch." : "Application received — our supply team will call you within two working days." };
+    return { ok: duplicate ? "Your application is already on file." : "Your service partner application was received." };
   } catch (e) {
     return fail(e);
   }

@@ -46,6 +46,7 @@ export async function recordDuesAction(_state: FinanceActionState, form: FormDat
     await recordDuesPayment(me, {
       billId: get(form, "billId"), method: get(form, "method"),
       reference: get(form, "reference"), paidOn: get(form, "paidOn"),
+      payerResidencyId: get(form, "payerResidencyId") || undefined,
     });
     return "Payment recorded. The receipt is ready.";
   });

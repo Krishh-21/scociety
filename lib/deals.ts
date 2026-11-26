@@ -1,4 +1,5 @@
 import { all, id, inTransaction, newRevisitCodes, one, run } from "./db";
+import { isDemoMode } from "./auth-mode";
 import {
   commission, currentPrice, effectivePrice, ladderRaisesPrice, nextSlab, rupees, savings, validateSlabs,
 } from "./pricing";
@@ -85,6 +86,10 @@ export async function logEvent(dealId: string, type: string, payload: Record<str
 
 export class DealError extends Error {}
 
+function requireDemoBookings() {
+  if (!isDemoMode()) throw new DealError("Service bookings are unavailable.");
+}
+
 // ----------------------------------------------------------------- reading
 
 export async function getDealView(dealId: string, viewerId?: string): Promise<DealView | null> {
@@ -146,6 +151,7 @@ export async function getDealView(dealId: string, viewerId?: string): Promise<De
 }
 
 export async function feed(societyId: string, viewerId?: string) {
+  if (!isDemoMode()) return { live: [], pending: [], confirmed: [], past: [] };
   ensureTicker();
   await tick();
   const rows = await all<{ id: string }>(
@@ -165,6 +171,7 @@ export async function feed(societyId: string, viewerId?: string) {
 }
 
 export async function societySavings(societyId: string): Promise<number> {
+  if (!isDemoMode()) return 0;
   const rows = await all<{ listPricePaise: number; finalPricePaise: number; units: number }>(
     `SELECT d.listPricePaise, m.finalPricePaise, m.units FROM deal_member m
      JOIN deal d ON d.id = m.dealId
@@ -175,6 +182,7 @@ export async function societySavings(societyId: string): Promise<number> {
 }
 
 export async function myBookings(userId: string) {
+  if (!isDemoMode()) return [];
   ensureTicker();
   const rows = await all<{ dealId: string }>(
     "SELECT dealId FROM deal_member WHERE userId = ? AND status <> 'left' ORDER BY joinedAt DESC",
@@ -220,6 +228,7 @@ export async function joinDeal(args: {
   /** The society the joiner is verified in. A deal is private to its society. */
   societyId?: string;
 }) {
+  requireDemoBookings();
   const view = await inTransaction(async () => {
     const row = await one<DealRow>("SELECT * FROM deal WHERE id = ?", args.dealId);
     if (!row) throw new DealError("Deal not found.");
@@ -307,6 +316,7 @@ export async function joinDeal(args: {
 }
 
 export async function leaveDeal(dealId: string, userId: string) {
+  requireDemoBookings();
   const { view, left } = await inTransaction(async () => {
     const deal = await one<DealRow>("SELECT * FROM deal WHERE id = ?", dealId);
     if (!deal) throw new DealError("Deal not found.");
@@ -343,6 +353,7 @@ export async function createDeal(args: {
   societyId: string; skuId: string; vendorId: string; createdBy: string;
   serviceDate: string; targetFlats: number; deadlineHours: number; slabs?: Slab[];
 }) {
+  requireDemoBookings();
   const sku = await one<SkuRow>("SELECT * FROM sku WHERE id = ?", args.skuId);
   if (!sku) throw new DealError("Unknown service.");
   const parsed = parseSku(sku);
@@ -423,6 +434,7 @@ export async function approveDeal(dealId: string, approvedBy: string) {
 
 /** Lock a deal: freeze one final price for every member and create one job per flat. */
 export async function lockDeal(dealId: string) {
+  requireDemoBookings();
   return inTransaction(async () => {
     const view = await getDealView(dealId);
     if (!view) throw new DealError("Deal not found.");
@@ -469,6 +481,7 @@ async function lockOpenDeal(view: DealView) {
 
 /** Deadline passed without the minimum: nobody is charged. */
 export async function expireDeal(dealId: string) {
+  requireDemoBookings();
   return inTransaction(async () => {
     const view = await getDealView(dealId);
     if (!view) throw new DealError("Deal not found.");
@@ -508,7 +521,7 @@ let tickInProgress: Promise<number> | null = null;
  * its scheduler.
  */
 export function ensureTicker() {
-  if (ticker || process.env.VERCEL === "1" || process.env.JODO_DISABLE_TICKER === "1") return;
+  if (ticker || !isDemoMode() || process.env.VERCEL === "1" || process.env.JODO_DISABLE_TICKER === "1") return;
   const every = Number(process.env.JODO_TICK_MS ?? 60_000);
   ticker = setInterval(async () => {
     if (tickInProgress) return;
@@ -524,6 +537,7 @@ export function ensureTicker() {
 
 /** The scheduled pass: close every deal whose deadline has gone. */
 export function tick() {
+  if (!isDemoMode()) return Promise.resolve(0);
   tickInProgress ??= closeDueDeals().finally(() => { tickInProgress = null; });
   return tickInProgress;
 }
@@ -539,6 +553,7 @@ async function closeDueDeals() {
 
 /** Same rule for a single deal, so a deal page never renders a closed deal as open. */
 export async function tickDeal(dealId: string) {
+  if (!isDemoMode()) return;
   const row = await one<{ status: string; joinDeadline: string }>(
     "SELECT status, joinDeadline FROM deal WHERE id = ?", dealId,
   );
@@ -813,6 +828,7 @@ async function completeRevisit(visit: RevisitVisit, otp: string) {
 async function recordPayment(
   memberId: string, dealId: string, type: string, method: string, amountPaise: number, status: string,
 ) {
+  requireDemoBookings();
   await run(
     "INSERT INTO payment (id,memberId,dealId,type,method,amountPaise,status,ref,createdAt) VALUES (?,?,?,?,?,?,?,?,?)",
     id("pay"), memberId, dealId, type, method, amountPaise, status, `sim_${Math.random().toString(36).slice(2, 10)}`, now(),

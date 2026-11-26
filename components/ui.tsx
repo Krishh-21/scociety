@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { isDemoMode } from "@/lib/auth-mode";
 import { discountPct, formatDate, rupees } from "@/lib/pricing";
 import type { DealView } from "@/lib/types";
+import { BrandMark } from "./Brand";
 import Countdown from "./Countdown";
 import "./app-shell.css";
 
@@ -10,7 +12,7 @@ export function PriceBlock({ deal, size = "lg" }: { deal: DealView; size?: "lg" 
   return (
     <div className="flex items-end gap-x-3 gap-y-1 flex-wrap">
       <span
-        className={`tnum font-extrabold text-save-700 leading-none tracking-tight ${size === "lg" ? "text-[40px] sm:text-[46px]" : "text-[26px]"}`}
+        className={`tnum font-semibold text-save-700 leading-none ${size === "lg" ? "text-[40px] sm:text-[46px]" : "text-[26px]"}`}
       >
         {rupees(deal.currentPricePaise)}
       </span>
@@ -41,10 +43,10 @@ export function FlatCounter({ deal }: { deal: DealView }) {
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
-        <div className="tnum text-[22px] font-extrabold">
+        <div className="tnum text-[22px] font-semibold">
           {deal.basisCount}
-          {!hitTarget && <span className="text-ink-300 font-bold"> / {deal.targetFlats}</span>}
-          <span className="text-ink-500 text-sm font-semibold"> {unit} joined</span>
+          {!hitTarget && <span className="text-ink-300 font-medium"> / {deal.targetFlats}</span>}
+          <span className="text-ink-500 text-sm font-medium"> {unit} joined</span>
         </div>
         {deal.status === "open" && (
           <span className={`pill ${hitTarget ? "bg-save-50 text-save-700" : "bg-warn-50 text-warn-600"}`}>
@@ -111,7 +113,7 @@ export function LadderMeter({ deal }: { deal: DealView }) {
                     : "1"
                   : `${s.minFlats}+`}{" "}
                 {deal.basisLabel}
-                {active && <span className="ms-2 text-[11px] font-extrabold uppercase tracking-wide">Now</span>}
+                {active && <span className="ms-2 text-[12px] font-medium">Now</span>}
               </span>
               <span className={`tnum font-bold ${active ? "text-save-700" : unlocked ? "text-ink-700" : "text-ink-500"}`}>
                 {rupees(s.pricePaise)}
@@ -206,7 +208,7 @@ export function DealCard({ deal }: { deal: DealView }) {
         </p>
         <StatusPill deal={deal} />
       </div>
-      <h3 className="text-[17px] font-extrabold leading-snug tracking-tight mb-0.5">{deal.sku.name}</h3>
+      <h3 className="text-[17px] font-semibold leading-snug mb-0.5">{deal.sku.name}</h3>
       <p className="text-[13px] text-ink-500 mb-3">
         {deal.vendor.name} · <span aria-label={`rated ${deal.vendor.rating}`}>★ {deal.vendor.rating}</span>
       </p>
@@ -370,7 +372,7 @@ export function VisitorAlert({
       </span>
       <div className="min-w-0 flex-1">
         <p className="jd-alert__kicker">Needs your answer</p>
-        <h2 id={headingId} className="text-[18px] font-extrabold leading-snug break-words">
+        <h2 id={headingId} className="text-[18px] font-semibold leading-snug break-words">
           {single ? "Visitor at the gate" : `${count} visitors at the gate`}
         </h2>
         {single && visitorName && (
@@ -380,7 +382,7 @@ export function VisitorAlert({
           </p>
         )}
         {children}
-        <Link href={href} className="mt-2 inline-flex min-h-10 items-center gap-1 text-sm font-bold text-ink-900 underline decoration-warn-500 decoration-2 underline-offset-4">
+        <Link href={href} className="mt-2 inline-flex min-h-10 items-center gap-1 text-sm font-semibold text-ink-900 underline decoration-warn-500 decoration-2 underline-offset-4">
           {linkLabel ?? (single ? "Open entry ticket" : "Review entry requests")}
           <span aria-hidden="true">›</span>
         </Link>
@@ -429,7 +431,7 @@ export function QuickAction({
         <Icon name={icon} size={20} />
       </span>
       <span className="mt-auto">
-        <span className="block text-[15px] font-extrabold leading-tight">{label}</span>
+        <span className="block text-[15px] font-semibold leading-tight">{label}</span>
         {note && <span className="jd-action__note block text-[12px] mt-0.5 leading-snug">{note}</span>}
       </span>
     </Link>
@@ -481,7 +483,7 @@ export function ConsoleHeader({
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-5 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <p className="jd-band__kicker">{eyebrow}</p>
-          <h1 className="text-[24px] sm:text-[28px] font-extrabold tracking-tight leading-tight mt-1">{title}</h1>
+          <h1 className="text-[24px] sm:text-[28px] font-semibold leading-tight mt-1">{title}</h1>
           {meta && <div className="text-[13px] jd-band__muted mt-0.5">{meta}</div>}
         </div>
         {actions && <div className="flex flex-wrap gap-2 items-center">{actions}</div>}
@@ -494,7 +496,8 @@ export function ConsoleHeader({
 
 export type IconName =
   | "home" | "explore" | "bookings" | "society" | "profile" | "bell" | "gate" | "plus"
-  | "help" | "chat" | "megaphone" | "wallet" | "wrench" | "shield" | "arrow";
+  | "help" | "chat" | "megaphone" | "wallet" | "wrench" | "shield" | "arrow"
+  | "calendar" | "vote" | "key" | "users" | "receipt" | "check" | "clock" | "grid" | "chevron" | "services";
 
 export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -507,10 +510,24 @@ export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
         <rect x="14" y="14" width="7" height="7" rx="1.5" />
       </>
     ),
+    grid: (
+      <>
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <path d="M17.5 14v7M14 17.5h7" />
+      </>
+    ),
     bookings: (
       <>
         <rect x="3" y="4.5" width="18" height="16.5" rx="2" />
         <path d="M3 9.5h18M8 2.5v4M16 2.5v4" />
+      </>
+    ),
+    calendar: (
+      <>
+        <rect x="3" y="4.5" width="18" height="16.5" rx="2" />
+        <path d="M3 9.5h18M8 2.5v4M16 2.5v4M7.5 13.5h3M7.5 17h3M13.5 13.5h3" />
       </>
     ),
     society: (
@@ -525,6 +542,12 @@ export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
         <path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" />
       </>
     ),
+    users: (
+      <>
+        <circle cx="9" cy="8" r="3.5" />
+        <path d="M2.5 20c1.2-3.4 3.6-5 6.5-5s5.3 1.6 6.5 5M16 4.6a3.5 3.5 0 0 1 0 6.8M18 15.3c1.7.7 2.9 2.2 3.5 4.7" />
+      </>
+    ),
     bell: (
       <>
         <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" />
@@ -537,7 +560,21 @@ export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
         <path d="M9 21v-7h6v7M2 21h20" />
       </>
     ),
+    key: (
+      <>
+        <circle cx="8" cy="15" r="4.5" />
+        <path d="m11.2 11.8 8.3-8.3M16.5 6.5l2.5 2.5M14 9l2 2" />
+      </>
+    ),
     plus: <path d="M12 5v14M5 12h14" />,
+    check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
+    chevron: <path d="m9 6 6 6-6 6" />,
+    clock: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7.5V12l3 2" />
+      </>
+    ),
     help: (
       <>
         <circle cx="12" cy="12" r="9" />
@@ -551,13 +588,30 @@ export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
         <path d="M17 8.5a5 5 0 0 1 0 7" />
       </>
     ),
+    vote: (
+      <>
+        <path d="M4 14h16v7H4z" />
+        <path d="m8.5 9.5 2.5 2.5 5-5M7 14V4h10v10" />
+      </>
+    ),
     wallet: (
       <>
         <rect x="3" y="6" width="18" height="14" rx="2.5" />
         <path d="M3 10h18M16 15h1.5M7 6V4.5A1.5 1.5 0 0 1 8.5 3h9" />
       </>
     ),
+    receipt: (
+      <>
+        <path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" />
+        <path d="M9 8h6M9 12h6M9 16h3" />
+      </>
+    ),
     wrench: <path d="M14.5 6.5a4 4 0 0 0 5 5L12 19a2.1 2.1 0 0 1-3-3l7.5-7.5zM14.5 6.5 17 4a4 4 0 0 1 3 3l-2.5 2.5" />,
+    services: (
+      <>
+        <path d="M3 12h3l2-6 4 12 2-6h7" />
+      </>
+    ),
     shield: <path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.4 7.5 9.5 4.3-1.1 7.5-4.9 7.5-9.5V6z" />,
     arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
   };
@@ -568,7 +622,7 @@ export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.9"
+      strokeWidth="1.6"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -579,80 +633,260 @@ export function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
   );
 }
 
-function BrandMark() {
-  return (
-    <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="9" fill="#dce99e" />
-      <rect x="9" y="19" width="14" height="5" rx="1.5" fill="#132c24" />
-      <rect x="9" y="12.5" width="14" height="5" rx="1.5" fill="#132c24" opacity=".7" />
-      <rect x="9" y="6" width="14" height="5" rx="1.5" fill="#156348" />
-    </svg>
-  );
-}
-
 /* ------------------------------------------------------- navigation */
 
-type TabKey = "home" | "explore" | "bookings" | "society" | "profile";
+/** Every place the resident navigation can mark as "you are here". */
+export type NavKey =
+  | "home" | "visitors" | "community" | "finance" | "helpdesk" | "society"
+  | "explore" | "bookings" | "profile" | "notifications" | "help";
+
+type Translate = (key: string, english: string) => string;
+
+type NavLink = { key: NavKey; href: string; label: string; icon: IconName };
 
 /**
- * Bottom tab bar on phones, a forest side rail from 1024px. Detail screens
- * pass `mobile={false}` so they keep their own bottom actions on a phone but
- * still get the rail on a desktop.
+ * One source for both navigations, so a new society module is added once.
+ * The sidebar groups the society's modules; the phone bar keeps five
+ * destinations and folds each module back onto the tab that owns it.
+ */
+export function navigationModel(t: Translate = (_k, en) => en, showBookings = isDemoMode()) {
+  const groups: { label: string; links: NavLink[] }[] = [
+    {
+      label: t("nav.group.today", "Today"),
+      links: [
+        { key: "home", href: "/", label: t("nav.home", "Home"), icon: "home" },
+        { key: "notifications", href: "/notifications", label: t("nav.notifications", "Notifications"), icon: "bell" },
+      ],
+    },
+    {
+      label: t("nav.society", "Society"),
+      links: [
+        { key: "visitors", href: "/society/visitors", label: t("nav.visitors", "Visitors"), icon: "gate" },
+        { key: "community", href: "/society/community", label: t("nav.community", "Notices & amenities"), icon: "megaphone" },
+        { key: "finance", href: "/society/finance", label: t("nav.dues", "Dues & receipts"), icon: "wallet" },
+        { key: "helpdesk", href: "/society/complaints", label: t("nav.helpdesk", "Helpdesk"), icon: "wrench" },
+        { key: "society", href: "/society", label: t("nav.allModules", "All modules"), icon: "grid" },
+      ],
+    },
+    ...(showBookings ? [{
+      label: t("nav.services", "Services"),
+      links: [
+        { key: "explore", href: "/explore", label: t("nav.groupServices", "Group services"), icon: "services" },
+        { key: "bookings", href: "/bookings", label: t("nav.bookings", "Bookings"), icon: "bookings" },
+      ],
+    } satisfies { label: string; links: NavLink[] }] : []),
+    {
+      label: t("nav.group.you", "You"),
+      links: [
+        { key: "profile", href: "/profile", label: t("nav.account", "Account"), icon: "profile" },
+        { key: "help", href: "/help", label: t("nav.help", "Help"), icon: "help" },
+      ],
+    },
+  ];
+  const tabs: (NavLink & { owns: NavKey[] })[] = [
+    { key: "home", href: "/", label: t("nav.home", "Home"), icon: "home", owns: ["home"] },
+    { key: "visitors", href: "/society/visitors", label: t("nav.visitors", "Visitors"), icon: "gate", owns: ["visitors"] },
+    {
+      key: "society", href: "/society", label: t("nav.society", "Society"), icon: "society",
+      owns: ["society", "community", "helpdesk", "explore", "bookings"],
+    },
+    { key: "finance", href: "/society/finance", label: t("home.dues", "Dues"), icon: "wallet", owns: ["finance"] },
+    { key: "profile", href: "/profile", label: t("nav.account", "Account"), icon: "profile", owns: ["profile", "help", "notifications"] },
+  ];
+  return { groups, tabs };
+}
+
+/**
+ * Bottom tab bar on phones, a navy sidebar from 1024px. Detail screens pass
+ * `mobile={false}` so they keep their own bottom actions on a phone but still
+ * get the sidebar on a desktop. `context` labels the society and flat in the
+ * sidebar footer.
  */
 export function TabBar({
   active,
   t = (_k: string, en: string) => en,
   mobile = true,
+  context,
 }: {
-  active?: TabKey | "notifications" | "help";
-  t?: (key: string, english: string) => string;
+  active?: NavKey;
+  t?: Translate;
   mobile?: boolean;
+  context?: { society: string; flat?: string };
 }) {
-  const items = [
-    { key: "home", href: "/", label: t("nav.home", "Home") },
-    { key: "explore", href: "/explore", label: t("nav.explore", "Explore") },
-    { key: "bookings", href: "/bookings", label: t("nav.bookings", "Bookings") },
-    { key: "society", href: "/society", label: t("nav.society", "Society") },
-    { key: "profile", href: "/profile", label: t("nav.profile", "Profile") },
-  ] as const;
-  const extras = [
-    { key: "notifications", href: "/notifications", label: "Notifications", icon: "bell" },
-    { key: "help", href: "/help", label: "Help", icon: "help" },
-  ] as const;
+  const { groups, tabs } = navigationModel(t);
   return (
-    <nav aria-label="Main" className="jd-nav" data-mobile={mobile ? undefined : "false"}>
-      <Link href="/" className="jd-nav__brand" aria-label="JODO home">
-        <BrandMark />
-        <span aria-hidden="true">jodo</span>
-      </Link>
-      <div className="jd-nav__list">
-        {items.map((i) => {
-          const on = active === i.key;
-          return (
-            <Link key={i.key} href={i.href} aria-current={on ? "page" : undefined} className="jd-nav__item">
-              <span className="jd-nav__icon">
-                <Icon name={i.key} />
-              </span>
-              {i.label}
-            </Link>
-          );
-        })}
-      </div>
-      <div className="jd-nav__extra">
-        {extras.map((i) => (
-          <Link key={i.key} href={i.href} aria-current={active === i.key ? "page" : undefined} className="jd-nav__item">
-            <span className="jd-nav__icon">
-              <Icon name={i.icon} size={20} />
-            </span>
-            {i.label}
-          </Link>
+    <>
+      <nav aria-label="Main" className="jd-side">
+        <Link href="/" className="jd-side__brand" aria-label="JODO home">
+          <BrandMark size={30} />
+          <span aria-hidden="true">jodo</span>
+        </Link>
+        {groups.map((group) => (
+          <div key={group.label} className="jd-side__group">
+            <p className="jd-side__label" aria-hidden="true">{group.label}</p>
+            <ul role="list">
+              {group.links.map((link) => (
+                <li key={link.key}>
+                  <Link
+                    href={link.href}
+                    aria-current={active === link.key ? "page" : undefined}
+                    className="jd-side__item"
+                  >
+                    <Icon name={link.icon} size={18} />
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         ))}
+        {context && (
+          <p className="jd-side__context">
+            <span className="block font-semibold text-[13px]">{context.society}</span>
+            {context.flat && <span className="block text-[12px]">Flat {context.flat}</span>}
+          </p>
+        )}
+      </nav>
+      {mobile && (
+        <nav aria-label="Main" className="jd-tabs">
+          <ul role="list" className="jd-tabs__list">
+            {tabs.map((tab) => {
+              const on = active !== undefined && tab.owns.includes(active);
+              return (
+                <li key={tab.key}>
+                  <Link href={tab.href} aria-current={on ? "page" : undefined} className="jd-tabs__item">
+                    <span className="jd-tabs__icon">
+                      <Icon name={tab.icon} size={21} />
+                    </span>
+                    <span className="jd-tabs__label">{tab.label}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+      )}
+    </>
+  );
+}
+
+/* ------------------------------------------------- dashboard primitives */
+
+/**
+ * A titled block on a dashboard: heading, an optional "see all" link and the
+ * body. Used for the notice board, dues, helpdesk and the like.
+ */
+export function Panel({
+  id,
+  title,
+  icon,
+  action,
+  tone,
+  children,
+  className = "",
+}: {
+  id: string;
+  title: string;
+  icon?: IconName;
+  action?: { href: string; label: string };
+  tone?: "alert";
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section aria-labelledby={id} className={`jd-panel ${className}`} data-tone={tone}>
+      <div className="jd-panel__head">
+        {icon && (
+          <span className="jd-panel__icon" aria-hidden="true">
+            <Icon name={icon} size={18} />
+          </span>
+        )}
+        <h2 id={id} className="jd-panel__title">{title}</h2>
+        {action && (
+          <Link href={action.href} className="jd-panel__link">
+            {action.label}
+            <span aria-hidden="true" className="rtl:-scale-x-100 inline-block">›</span>
+          </Link>
+        )}
       </div>
-      <Link href="/create" className="jd-nav__cta">
-        <Icon name="plus" size={18} />
-        {t("feed.startGroup", "Start a group")}
-      </Link>
-    </nav>
+      {children}
+    </section>
+  );
+}
+
+/** A quiet "nothing here" line with the one useful next step. */
+export function EmptyNote({ children, action }: { children: ReactNode; action?: { href: string; label: string } }) {
+  return (
+    <div className="jd-empty">
+      <p>{children}</p>
+      {action && (
+        <Link href={action.href} className="jd-empty__action">
+          {action.label} <span aria-hidden="true">›</span>
+        </Link>
+      )}
+    </div>
+  );
+}
+
+/** Square-ish shortcut used for the five daily society destinations. */
+export function Shortcut({
+  href,
+  label,
+  icon,
+  badge,
+  badgeLabel,
+}: {
+  href: string;
+  label: string;
+  icon: IconName;
+  badge?: string | number;
+  /** Screen-reader wording for the badge, e.g. "2 waiting". */
+  badgeLabel?: string;
+}) {
+  return (
+    <Link href={href} className="jd-shortcut">
+      <span className="jd-shortcut__icon" aria-hidden="true">
+        <Icon name={icon} size={20} />
+        {badge !== undefined && <span className="jd-shortcut__badge tnum">{badge}</span>}
+      </span>
+      <span className="jd-shortcut__label">
+        {label}
+        {badgeLabel && <span className="sr-only">, {badgeLabel}</span>}
+      </span>
+    </Link>
+  );
+}
+
+/** A directory entry for one society module. */
+export function ModuleLink({
+  href,
+  label,
+  description,
+  icon,
+  meta,
+}: {
+  href: string;
+  label: string;
+  description: string;
+  icon: IconName;
+  meta?: string;
+}) {
+  return (
+    <Link href={href} className="jd-module">
+      <span className="jd-module__icon" aria-hidden="true">
+        <Icon name={icon} size={20} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2 flex-wrap">
+          <span className="text-[15px] font-medium leading-snug">{label}</span>
+          {meta && <span className="jd-module__meta">{meta}</span>}
+        </span>
+        <span className="block text-[13px] text-ink-500 leading-snug mt-0.5">{description}</span>
+      </span>
+      <span aria-hidden="true" className="text-ink-300 shrink-0 rtl:-scale-x-100">
+        <Icon name="chevron" size={18} />
+      </span>
+    </Link>
   );
 }
 
@@ -680,7 +914,7 @@ export function NotificationBell({ unread }: { unread: number }) {
       {unread > 0 && (
         <span
           aria-hidden="true"
-          className="absolute -top-1 -end-1 min-w-5 h-5 px-1 rounded-full bg-danger-600 text-white text-[11px] font-bold grid place-items-center tnum ring-2 ring-canvas"
+          className="absolute -top-1 -end-1 min-w-5 h-5 px-1 rounded-full bg-danger-600 text-white text-[11px] font-semibold grid place-items-center tnum ring-2 ring-canvas"
         >
           {unread > 9 ? "9+" : unread}
         </span>
@@ -719,31 +953,42 @@ export function SlotLoad({ deal }: { deal: DealView }) {
 export function AppHeader({
   title,
   subtitle,
+  kicker,
   right,
   back,
+  brand = false,
 }: {
   title: string;
   subtitle?: string;
+  /** A short line above the title — today's date on the dashboard. */
+  kicker?: string;
   right?: ReactNode;
   /** Where the back chevron goes. Detail screens get one; top-level tabs don't. */
   back?: { href: string; label?: string };
+  /** Show the mark on phones, where the sidebar (and its mark) is hidden. */
+  brand?: boolean;
 }) {
   return (
     <header className="jd-header">
-      {back && (
+      {back ? (
         <Link
           href={back.href}
           aria-label={back.label ?? "Back"}
           className="jd-icon-btn -ms-1"
         >
-          <svg className="rtl:-scale-x-100" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg className="rtl:-scale-x-100" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </Link>
-      )}
+      ) : brand ? (
+        <Link href="/" aria-label="JODO home" className="jd-header__brand">
+          <BrandMark size={32} />
+        </Link>
+      ) : null}
       <div className="min-w-0 flex-1">
-        <h1 className="jd-header__title truncate">{title}</h1>
-        {subtitle && <p className="text-[13px] text-ink-500 truncate">{subtitle}</p>}
+        {kicker && <p className="jd-header__kicker truncate">{kicker}</p>}
+        <h1 className={`jd-header__title ${brand ? "break-words" : "truncate"}`}>{title}</h1>
+        {subtitle && <p className={`jd-header__subtitle ${brand ? "break-words" : "truncate"}`}>{subtitle}</p>}
       </div>
       {right && <div className="shrink-0 flex items-center gap-2">{right}</div>}
     </header>

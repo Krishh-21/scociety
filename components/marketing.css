@@ -1,232 +1,283 @@
 /*
  * Public-site palette. Every marketing page renders inside `.mk`, which re-points the
- * shared Tailwind colour tokens at the JODO marketing palette — so `bg-brand-600`,
- * `.card`, `.btn-primary` and focus rings all pick it up without touching the
- * signed-in app's tokens in app/globals.css.
+ * shared Tailwind colour tokens at the JODO brand — so `bg-brand-600`, `.card`,
+ * `.btn-primary` and focus rings all pick it up without touching the signed-in app's
+ * tokens in app/globals.css.
  *
- * Forest ink #132c24 · evergreen #156348 · warm off-white #f7f6f0 · lime #dce99e (sparingly).
+ * Deep navy #17223b · indigo #314ec5 · pale indigo #ebeeff · warm off-white #fbfaf7 ·
+ * soft slate #eff2f8 · amber only where something needs attention.
  */
 .mk {
-  --mk-forest: #132c24;
-  --mk-forest-2: #1b3a30;
-  --mk-evergreen: #156348;
-  --mk-lime: #dce99e;
-  --mk-lime-ink: #33461a;
-  --mk-paper: #f7f6f0;
+  --mk-navy: #17223b;
+  --mk-indigo: #314ec5;
+  --mk-indigo-pale: #ebeeff;
+  --mk-amber: #f3a712;
+  --mk-amber-soft: #fff3d6;
+  --mk-amber-ink: #7a4b00;
+  --mk-amber-line: #f2c46d;
+  --mk-ok-soft: #e4f4ea;
+  --mk-ok-ink: #176238;
 
-  --color-brand-50: #e5efe8;
-  --color-brand-500: #2c8160;
-  --color-brand-600: #156348;
-  --color-brand-700: #156348;
+  --color-brand-50: #ebeeff;
+  --color-brand-500: #4a64d8;
+  --color-brand-600: #314ec5;
+  --color-brand-700: #2840a8;
 
-  --color-save-50: #edf4dc;
-  --color-save-500: #4d8a2f;
-  --color-save-600: #156348;
-  --color-save-700: #10553c;
+  --color-save-50: #e4f4ea;
+  --color-save-500: #2f8a57;
+  --color-save-600: #237a4a;
+  --color-save-700: #176238;
 
-  --color-ink-900: #132c24;
-  --color-ink-700: #3b4f47;
-  --color-ink-500: #66756e;
-  --color-ink-300: #a8b2ac;
+  --color-ink-900: #17223b;
+  --color-ink-700: #3a4560;
+  --color-ink-500: #59637c;
+  --color-ink-300: #8b93a7;
 
-  --color-line: #e2e0d5;
-  --color-surface: #fffefa;
-  --color-canvas: #f7f6f0;
-  --color-canvas-alt: #efede3;
+  --color-line: #e1e5ee;
+  --color-surface: #ffffff;
+  --color-canvas: #fbfaf7;
+  --color-canvas-alt: #eff2f8;
+
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .mk {
-    --color-brand-50: #16302a;
-    --color-brand-500: #4fae86;
-    --color-brand-600: #1d7a58;
-    --color-brand-700: #8fd2ae;
-    --color-save-50: #1c2f1d;
-    --color-save-500: #9cc46a;
-    --color-save-600: #1d7a58;
-    --color-save-700: #c9e18a;
-    --color-ink-900: #eef2ea;
-    --color-ink-700: #c3cec6;
-    --color-ink-500: #8e9c94;
-    --color-ink-300: #56655d;
-    --color-line: #24372f;
-    --color-surface: #12201b;
-    --color-canvas: #0c1512;
-    --color-canvas-alt: #172620;
+    --mk-indigo-pale: #1f2a52;
+    --mk-amber-soft: #3a2a08;
+    --mk-amber-ink: #ffd27a;
+    --mk-amber-line: #6d5222;
+    --mk-ok-soft: #12301f;
+    --mk-ok-ink: #8fd8ae;
+    --color-brand-50: #1f2a52;
+    --color-brand-500: #8399ff;
+    --color-brand-600: #4561d6;
+    --color-brand-700: #a9b8ff;
+    --color-save-50: #12301f;
+    --color-save-500: #5cc08a;
+    --color-save-600: #2a8a55;
+    --color-save-700: #8fd8ae;
+    --color-ink-900: #eef1f8;
+    --color-ink-700: #c5cbdb;
+    --color-ink-500: #9ca5bc;
+    --color-ink-300: #6c7591;
+    --color-line: #2a3350;
+    --color-surface: #191f30;
+    --color-canvas: #101522;
+    --color-canvas-alt: #19213a;
+    color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] .mk {
-  --color-brand-50: #16302a;
-  --color-brand-500: #4fae86;
-  --color-brand-600: #1d7a58;
-  --color-brand-700: #8fd2ae;
-  --color-save-50: #1c2f1d;
-  --color-save-500: #9cc46a;
-  --color-save-600: #1d7a58;
-  --color-save-700: #c9e18a;
-  --color-ink-900: #eef2ea;
-  --color-ink-700: #c3cec6;
-  --color-ink-500: #8e9c94;
-  --color-ink-300: #56655d;
-  --color-line: #24372f;
-  --color-surface: #12201b;
-  --color-canvas: #0c1512;
-  --color-canvas-alt: #172620;
+  --mk-indigo-pale: #1f2a52;
+  --mk-amber-soft: #3a2a08;
+  --mk-amber-ink: #ffd27a;
+  --mk-amber-line: #6d5222;
+  --mk-ok-soft: #12301f;
+  --mk-ok-ink: #8fd8ae;
+  --color-brand-50: #1f2a52;
+  --color-brand-500: #8399ff;
+  --color-brand-600: #4561d6;
+  --color-brand-700: #a9b8ff;
+  --color-save-50: #12301f;
+  --color-save-500: #5cc08a;
+  --color-save-600: #2a8a55;
+  --color-save-700: #8fd8ae;
+  --color-ink-900: #eef1f8;
+  --color-ink-700: #c5cbdb;
+  --color-ink-500: #9ca5bc;
+  --color-ink-300: #6c7591;
+  --color-line: #2a3350;
+  --color-surface: #191f30;
+  --color-canvas: #101522;
+  --color-canvas-alt: #19213a;
+  color-scheme: dark;
 }
 
 @layer components {
-  /* Display type: tight, heavy, never wider than it needs to be. */
+  /* Display type: size carries the hierarchy, weight stays at 600. */
   .mk-display {
-    font-weight: 800;
-    letter-spacing: -0.035em;
-    line-height: 1;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.06;
     text-wrap: balance;
   }
   .mk-h2 {
-    font-weight: 800;
-    letter-spacing: -0.028em;
-    line-height: 1.06;
-    font-size: clamp(30px, 4.4vw, 48px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.12;
+    font-size: clamp(28px, 4vw, 40px);
     text-wrap: balance;
   }
   .mk-lede {
     text-wrap: pretty;
   }
 
-  /* The one place lime gets to shout: a highlighter stroke under key words. */
-  .mk-mark {
-    background-image: linear-gradient(transparent 62%, var(--mk-lime) 62%, var(--mk-lime) 92%, transparent 92%);
-    padding: 0 0.06em;
-    -webkit-box-decoration-break: clone;
-    box-decoration-break: clone;
-  }
-  :root[data-theme="dark"] .mk .mk-mark {
-    background-image: linear-gradient(transparent 62%, #3d5a2a 62%, #3d5a2a 92%, transparent 92%);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .mk .mk-mark {
-      background-image: linear-gradient(transparent 62%, #3d5a2a 62%, #3d5a2a 92%, transparent 92%);
-    }
-  }
-
-  /* Forest panels stay forest in both themes. */
+  /* Navy panels stay navy in both themes. */
+  .mk-navy,
   .mk-forest {
-    background: var(--mk-forest);
-    color: #f3f5ee;
+    background: var(--mk-navy);
+    color: #f2f4fa;
   }
+  :root[data-theme="dark"] .mk .mk-navy,
   :root[data-theme="dark"] .mk .mk-forest {
-    background: #0f221b;
-    box-shadow: inset 0 0 0 1px #24372f;
+    background: #0a0f1c;
+    box-shadow: inset 0 1px 0 #2a3350;
   }
   @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .mk .mk-navy,
     :root:not([data-theme="light"]) .mk .mk-forest {
-      background: #0f221b;
-      box-shadow: inset 0 0 0 1px #24372f;
+      background: #0a0f1c;
+      box-shadow: inset 0 1px 0 #2a3350;
     }
   }
 
+  /* Light button for navy panels. */
+  .mk-btn-light,
   .mk-btn-lime {
-    background: var(--mk-lime);
-    color: var(--mk-forest);
+    background: #ffffff;
+    color: var(--mk-navy);
   }
+  .mk-btn-light:hover:not(:disabled),
   .mk-btn-lime:hover:not(:disabled) {
-    filter: brightness(1.05);
+    background: #ebeeff;
   }
   .mk-btn-ghost-light {
     background: transparent;
-    color: #f3f5ee;
-    box-shadow: inset 0 0 0 1.5px rgb(243 245 238 / 0.35);
+    color: #f2f4fa;
+    box-shadow: inset 0 0 0 1.5px rgb(242 244 250 / 0.4);
   }
   .mk-btn-ghost-light:hover:not(:disabled) {
-    background: rgb(243 245 238 / 0.08);
+    background: rgb(242 244 250 / 0.08);
   }
   .mk-btn-outline {
-    background: transparent;
+    background: var(--color-surface);
     color: var(--color-ink-900);
     box-shadow: inset 0 0 0 1.5px var(--color-line);
   }
   .mk-btn-outline:hover:not(:disabled) {
     box-shadow: inset 0 0 0 1.5px var(--color-ink-500);
   }
+  .mk-navy :focus-visible,
   .mk-forest :focus-visible,
   .mk-on-dark:focus-visible {
-    outline-color: var(--mk-lime);
+    outline-color: #c3cdff;
   }
 
-  /* Range slider: big thumb, lime fill up to the current value (set via --pct). */
-  .mk-range {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 100%;
-    height: 28px;
-    background: transparent;
-    cursor: pointer;
+  /* Small status chips used in the product illustrations and module cards. */
+  .mk-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 12px;
+    line-height: 20px;
+    font-weight: 500;
+    white-space: nowrap;
   }
-  .mk-range::-webkit-slider-runnable-track {
-    height: 8px;
-    border-radius: 999px;
-    background: linear-gradient(to right, var(--mk-lime) var(--pct, 0%), rgb(243 245 238 / 0.16) var(--pct, 0%));
+  .mk-chip--indigo {
+    background: var(--color-brand-50);
+    color: var(--color-brand-700);
   }
-  .mk-range::-moz-range-track {
-    height: 8px;
-    border-radius: 999px;
-    background: rgb(243 245 238 / 0.16);
+  .mk-chip--amber {
+    background: var(--mk-amber-soft);
+    color: var(--mk-amber-ink);
   }
-  .mk-range::-moz-range-progress {
-    height: 8px;
-    border-radius: 999px;
-    background: var(--mk-lime);
+  .mk-chip--ok {
+    background: var(--mk-ok-soft);
+    color: var(--mk-ok-ink);
   }
-  .mk-range::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 26px;
-    height: 26px;
-    margin-top: -9px;
-    border-radius: 999px;
-    background: #fff;
-    border: 4px solid var(--mk-lime);
-    box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
-  }
-  .mk-range::-moz-range-thumb {
-    width: 18px;
-    height: 18px;
-    border-radius: 999px;
-    background: #fff;
-    border: 4px solid var(--mk-lime);
-    box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
-  }
-  .mk-range:focus-visible {
-    outline: 3px solid var(--mk-lime);
-    outline-offset: 4px;
-    border-radius: 8px;
+  .mk-chip--quiet {
+    background: var(--color-canvas-alt);
+    color: var(--color-ink-700);
   }
 
-  /* Windows of the tower in the ladder demo. */
-  .mk-window {
-    aspect-ratio: 1 / 1.15;
-    border-radius: 3px;
-    background: rgb(243 245 238 / 0.09);
-    transition: background-color 220ms ease, box-shadow 220ms ease;
+  /* The hero's product preview: three screens on a plain paper-grey stage. */
+  .mk-stage {
+    position: relative;
+    border-radius: 20px;
+    background: var(--color-canvas-alt);
+    border: 1px solid var(--color-line);
   }
-  .mk-window[data-lit="true"] {
-    background: var(--mk-lime);
-    box-shadow: 0 0 10px rgb(220 233 158 / 0.45);
+  .mk-screen {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgb(23 34 59 / 0.05);
   }
-  .mk-window[data-mark="true"] {
-    box-shadow: inset 0 0 0 1.5px rgb(220 233 158 / 0.55);
+  :root[data-theme="dark"] .mk .mk-screen {
+    box-shadow: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .mk .mk-screen {
+      box-shadow: none;
+    }
+  }
+  .mk-screen__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-line);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-ink-500);
+  }
+
+  /* The signature: a flat number, set beside the gate status it belongs to. */
+  .mk-flat {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 6px;
+    border-radius: 6px;
+    border: 1px solid var(--color-line);
+    background: var(--color-surface);
+    color: var(--color-ink-900);
+    font-size: 12px;
+    line-height: 20px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Complaint progress track in the illustration and the helpdesk card. */
+  .mk-track {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .mk-track > span {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--color-canvas-alt);
+  }
+  .mk-track > span[data-on="true"] {
+    background: var(--color-brand-600);
+  }
+
+  .mk-icon-tile {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: var(--color-canvas-alt);
+    color: var(--color-ink-700);
+    flex-shrink: 0;
   }
 
   /* Inputs inside marketing forms. */
   .mk .mk-input {
     background: var(--color-surface);
     border: 1px solid var(--color-line);
-    border-radius: 12px;
-    padding: 11px 14px;
-    min-height: 46px;
+    border-radius: 10px;
+    padding: 12px 14px;
+    min-height: 48px;
     color: var(--color-ink-900);
-    transition: border-color 140ms ease, box-shadow 140ms ease;
+    transition: border-color 140ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 140ms cubic-bezier(0.22, 1, 0.36, 1);
   }
   .mk .mk-input:hover {
     border-color: var(--color-ink-300);
@@ -234,19 +285,11 @@
   .mk .mk-input:focus {
     outline: none;
     border-color: var(--color-brand-600);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand-600) 22%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand-600) 25%, transparent);
   }
 
+  /* Header band for the hero and long-form pages: plain paper, no wash. */
   .mk-grain {
-    background-image: radial-gradient(70% 60% at 85% 0%, color-mix(in srgb, var(--mk-lime) 38%, transparent), transparent 70%),
-      radial-gradient(50% 50% at 0% 10%, color-mix(in srgb, var(--color-brand-50) 90%, transparent), transparent 70%);
-  }
-  :root[data-theme="dark"] .mk .mk-grain {
-    background-image: radial-gradient(60% 50% at 85% 0%, rgb(220 233 158 / 0.07), transparent 70%);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .mk .mk-grain {
-      background-image: radial-gradient(60% 50% at 85% 0%, rgb(220 233 158 / 0.07), transparent 70%);
-    }
+    background: var(--color-canvas);
   }
 }

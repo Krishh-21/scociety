@@ -52,10 +52,10 @@ export async function getPinnedNotice(societyId: string) {
   return one<SocietyNotice>(`${NOTICE_QUERY} AND n.pinned = 1`, new Date().toISOString(), societyId);
 }
 
-export async function listSocietyNotices(societyId: string) {
+export async function listSocietyNotices(societyId: string, limit?: number) {
   return all<SocietyNotice>(
-    `${NOTICE_QUERY} ORDER BY n.pinned DESC, n.createdAt DESC, n.id DESC`,
-    new Date().toISOString(), societyId,
+    `${NOTICE_QUERY} ORDER BY n.pinned DESC, n.createdAt DESC, n.id DESC${limit === undefined ? "" : " LIMIT ?"}`,
+    new Date().toISOString(), societyId, ...(limit === undefined ? [] : [limit]),
   );
 }
 
@@ -84,6 +84,7 @@ export async function publishSocietyNotice(me: Me | null, input: {
     await run(`INSERT INTO society_notice (id, societyId, authorId, title, body, dealId, pinned, createdAt)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, noticeId, societyId, userId, title, body, dealId, Number(input.pinned), now);
     await notify(await societyResidentIds(societyId, userId), {
+      societyId,
       type: "society_notice", title, body: body.length > 160 ? `${body.slice(0, 159).trimEnd()}…` : body,
     });
   });
@@ -150,6 +151,7 @@ export async function scheduleSocietyMeeting(me: Me | null, input: {
     await run(`INSERT INTO society_meeting (id, societyId, authorId, title, agenda, location, startsAt)
          VALUES (?, ?, ?, ?, ?, ?, ?)`, meetingId, societyId, userId, title, agenda, location, startsAt);
     await notify(await societyResidentIds(societyId, userId), {
+      societyId,
       type: "society_meeting", title, body: `${formatSocietyDateTime(startsAt)} IST${location ? ` · ${location}` : ""}`,
     });
   });

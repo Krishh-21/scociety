@@ -4,7 +4,7 @@ import type { User } from "@/lib/types";
 
 process.env.JODO_DB = ":memory:";
 const { one } = await import("@/lib/db");
-const { createComplaint, listComplaints, updateComplaint, complaintSummary } = await import("@/lib/society-complaints");
+const { createComplaint, listComplaints, updateComplaint, complaintSummary, complaintPreview } = await import("@/lib/society-complaints");
 const { listSocietyGuards, registerGuard, requireSocietyGuard, setGuardActive, SocietyAccessError } = await import("@/lib/society-access");
 
 async function actor(id: string): Promise<Me> {
@@ -48,6 +48,20 @@ describe("society complaints", () => {
     expect((await requireSocietyGuard((await actor("usr_guard_green")))).societyId).toBe("soc_green_valley");
     await expect((async () => (await requireSocietyGuard(resident)))()).rejects.toThrow(SocietyAccessError);
     await expect((async () => (await listComplaints((await actor("usr_guard_green")))))()).rejects.toThrow(SocietyAccessError);
+  });
+
+  it("counts all open complaints while loading only two scoped dashboard rows", async () => {
+    const resident = await actor("usr_rahul");
+    const neighbour = await actor("usr_n1");
+    const committee = await actor("usr_kulkarni");
+    const original = (await complaintSummary(resident.residency!.societyId)).openComplaints;
+    for (const title of ["Lift door", "Lift light", "Lift floor display"]) {
+      await createComplaint(neighbour, "Lift", title, "Please have the lift technician check this.");
+    }
+    expect(await complaintPreview(committee)).toMatchObject({ count: original + 3 });
+    expect((await complaintPreview(committee)).recent).toHaveLength(2);
+    expect((await complaintPreview(neighbour)).count).toBe(3);
+    expect((await complaintPreview(resident)).recent.every((ticket) => ticket.flat === resident.residency!.flat)).toBe(true);
   });
 
   it("lets a committee assign and revoke guard access without taking over resident accounts", async () => {

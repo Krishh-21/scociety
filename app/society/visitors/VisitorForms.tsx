@@ -2,8 +2,8 @@
 
 import { useActionState } from "react";
 import {
-  createGuestPassAction, decideVisitAction, logVisitAction,
-  recordVisitMovementAction, redeemGuestPassAction, type VisitorActionState,
+  cancelVisitAction, createGuestPassAction, decideVisitAction, logVisitAction,
+  recordVisitMovementAction, redeemGuestPassAction, revokeGuestPassAction, type VisitorActionState,
 } from "./actions";
 
 const empty: VisitorActionState = {};
@@ -89,7 +89,20 @@ export function VisitMovementForm({ visitId, direction }: { visitId: string; dir
   );
 }
 
-export function CreateGuestPassForm() {
+export function CancelVisitForm({ visitId }: { visitId: string }) {
+  const [state, action, pending] = useActionState(cancelVisitAction, empty);
+  return (
+    <form action={action} aria-busy={pending} className="mt-3 space-y-2">
+      <input type="hidden" name="visitId" value={visitId} />
+      <button className="btn btn-quiet min-h-10 px-4 text-sm" disabled={pending}>
+        {pending ? "Cancelling…" : "Cancel ticket"}
+      </button>
+      <FormMessage state={state} />
+    </form>
+  );
+}
+
+export function CreateGuestPassForm({ activePassIds }: { activePassIds: string[] }) {
   const [state, action, pending] = useActionState(createGuestPassAction, empty);
   return (
     <form action={action} aria-busy={pending} className="flex flex-col gap-3">
@@ -99,7 +112,7 @@ export function CreateGuestPassForm() {
       </label>
       <button className="btn btn-primary" disabled={pending}>{pending ? "Creating…" : "Create guest pass"}</button>
       <FormMessage state={state} />
-      {state.code && state.expiresAt && (
+      {state.code && state.expiresAt && state.passId && activePassIds.includes(state.passId) && (
         <div role="status" className="rounded-xl bg-brand-50 p-3">
           <p className="text-[13px] font-bold text-brand-700">Guest pass ready</p>
           <code className="mt-1 block text-lg font-bold tracking-wider text-brand-700 select-all">{state.code}</code>
@@ -108,6 +121,19 @@ export function CreateGuestPassForm() {
           </p>
         </div>
       )}
+    </form>
+  );
+}
+
+export function RevokeGuestPassForm({ passId }: { passId: string }) {
+  const [state, action, pending] = useActionState(revokeGuestPassAction, empty);
+  return (
+    <form action={action} aria-busy={pending} className="mt-2 space-y-2">
+      <input type="hidden" name="passId" value={passId} />
+      <button className="btn btn-quiet min-h-10 px-3 text-sm" disabled={pending}>
+        {pending ? "Revoking…" : "Revoke pass"}
+      </button>
+      <FormMessage state={state} />
     </form>
   );
 }

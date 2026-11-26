@@ -3,6 +3,6 @@ const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL;
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? (productionHost ? `https://${productionHost}` : "http://localhost:3127")).replace(/\/$/, "");
 
 export const SITE_NAME = "JODO";
-export const SITE_TAGLINE = "Your building books together. Everyone pays less.";
+export const SITE_TAGLINE = "Your housing society, in one place";
 export const SITE_DESCRIPTION =
-  "Group booking for residential societies: neighbours book the same home service on the same day with one vendor, and the price falls as each flat joins.";
+  "Manage visitors, society notices, maintenance dues, complaints and amenity reservations with JODO, a shared app for residents, committees and gate staff.";

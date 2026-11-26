@@ -1,13 +1,22 @@
-import { Pool } from "pg";
-import { createDemoDatabase } from "../lib/db";
-import { POSTGRES_SCHEMA, postgresConnection, postgresSql } from "../lib/postgres-sql";
+import { Pool, type PoolClient } from "pg";
+import { createSchemaDatabase, id } from "../lib/db";
+import { postgresSchema, postgresConnection, postgresSql } from "../lib/postgres-sql";
 
 const connectionString = process.env.DATABASE_URL;
-if (!connectionString) throw new Error("Set DATABASE_URL to initialize the hosted demo database.");
+if (!connectionString) throw new Error("Set DATABASE_URL to initialize a hosted database.");
+const flags = new Set(process.argv.slice(2));
+const production = flags.has("--production");
+const bootstrap = flags.has("--bootstrap");
+const bootstrapOps = flags.has("--bootstrap-ops");
+if ([...flags].some((flag) => flag !== "--production" && flag !== "--bootstrap" && flag !== "--bootstrap-ops") ||
+    ((bootstrap || bootstrapOps) && !production)) {
+  throw new Error("Use npm run db:hosted [-- --production [--bootstrap] [--bootstrap-ops]].");
+}
+const schema = postgresSchema(!production);
 
 const AMENITY_GUARD = `
 CREATE OR REPLACE FUNCTION ensure_amenity_slot() RETURNS trigger
-LANGUAGE plpgsql SET search_path TO ${POSTGRES_SCHEMA}, pg_catalog AS $body$
+LANGUAGE plpgsql SET search_path TO ${schema}, pg_catalog AS $body$
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext(NEW."amenityId"));
   IF EXISTS (
@@ -37,24 +46,72 @@ function postgresDefinition(sql: string) {
   return postgresSql(ddl);
 }
 
+function requiredEnv(key: string, max: number) {
+  const value = process.env[key]?.trim();
+  if (!value || value.length > max) throw new Error(`Set ${key} to a value of at most ${max} characters.`);
+  return value;
+}
+
+async function bootstrapSociety(client: PoolClient) {
+  const societyId = requiredEnv("JODO_SOCIETY_ID", 64);
+  const societyName = requiredEnv("JODO_SOCIETY_NAME", 100);
+  const locality = requiredEnv("JODO_SOCIETY_LOCALITY", 100);
+  const city = requiredEnv("JODO_SOCIETY_CITY", 80);
+  const flatCount = Number(requiredEnv("JODO_SOCIETY_FLAT_COUNT", 5));
+  const secretaryName = requiredEnv("JODO_SECRETARY_NAME", 60);
+  const phone = requiredEnv("JODO_SECRETARY_PHONE", 10);
+  const flat = requiredEnv("JODO_SECRETARY_FLAT", 8).toUpperCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(societyId) || !Number.isInteger(flatCount) || flatCount < 1 ||
+      !/^[6-9]\d{9}$/.test(phone) || !/^[A-Z]{1,2}-\d{3,4}$/.test(flat)) {
+    throw new Error("Use a lowercase society slug, a positive flat count, a 10-digit Indian phone and a flat like A-402.");
+  }
+
+  const userId = id("usr");
+  const created = await client.query(postgresSql(
+    "INSERT INTO society (id, name, locality, city, flatCount) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING",
+  ), [societyId, societyName, locality, city, flatCount]);
+  if (!created.rowCount) throw new Error("A society with this ID already exists.");
+  const secretary = await client.query(postgresSql(
+    "INSERT INTO user (id, phone, name, role) VALUES (?, ?, ?, 'secretary') ON CONFLICT(phone) DO NOTHING",
+  ), [userId, phone, secretaryName]);
+  if (!secretary.rowCount) throw new Error("The secretary already has a JODO account. Review the account before assigning this role.");
+  await client.query(postgresSql(
+    "INSERT INTO residency (id,userId,societyId,flat,type,status,verifiedVia,createdAt) VALUES (?,?,?,?,'owner','verified','ops',?)",
+  ), [id("res"), userId, societyId, flat, new Date().toISOString()]);
+}
+
+async function bootstrapOperator(client: PoolClient) {
+  const phone = requiredEnv("JODO_OPS_PHONE", 10);
+  const name = requiredEnv("JODO_OPS_NAME", 60);
+  if (!/^[6-9]\d{9}$/.test(phone)) throw new Error("Use a 10-digit Indian mobile number for the operations account.");
+  const created = await client.query(postgresSql(
+    "INSERT INTO user (id,phone,name,role) VALUES (?,?,?,'ops') ON CONFLICT(phone) DO NOTHING",
+  ), [id("usr"), phone, name]);
+  if (!created.rowCount) throw new Error("The operations mobile number already has a JODO account.");
+}
+
 async function initialize() {
   const pool = new Pool({ ...postgresConnection(connectionString!), max: 1, connectionTimeoutMillis: 15_000 });
-  const source = createDemoDatabase();
+  const source = createSchemaDatabase(!production);
   try {
     const client = await pool.connect();
     try {
       await client.query(`BEGIN;
         SELECT pg_advisory_xact_lock(110415234, 1);
-        CREATE SCHEMA IF NOT EXISTS ${POSTGRES_SCHEMA};
-        REVOKE ALL ON SCHEMA ${POSTGRES_SCHEMA} FROM PUBLIC;
-        SET LOCAL search_path TO ${POSTGRES_SCHEMA}, pg_catalog;`);
+        CREATE SCHEMA IF NOT EXISTS ${schema};
+        REVOKE ALL ON SCHEMA ${schema} FROM PUBLIC;
+        SET LOCAL search_path TO ${schema}, pg_catalog;`);
       const objects = source.prepare(`SELECT name, type, sql FROM sqlite_master
         WHERE type IN ('table', 'index') AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid`).all() as {
         name: string; type: "table" | "index"; sql: string;
       }[];
       for (const { sql } of objects) await client.query(postgresDefinition(sql));
       await client.query(postgresSql(`
+        ALTER TABLE gate_pass ADD COLUMN IF NOT EXISTS revokedAt TEXT;
+        ALTER TABLE gate_visit ADD COLUMN IF NOT EXISTS cancelledAt TEXT;
+        ALTER TABLE gate_visit ADD COLUMN IF NOT EXISTS cancelledBy TEXT REFERENCES user(id);
         ALTER TABLE notification ADD COLUMN IF NOT EXISTS gateVisitId TEXT;
+        ALTER TABLE notification ADD COLUMN IF NOT EXISTS residencyId TEXT;
         CREATE UNIQUE INDEX IF NOT EXISTS jodo_amenity_name_ci ON society_amenity(societyId, lower(name));
         CREATE UNIQUE INDEX IF NOT EXISTS jodo_vendor_invoice_ci
           ON society_finance_expenses(societyId, lower(vendor), lower(invoiceReference)) WHERE kind = 'vendor_bill';
@@ -63,7 +120,7 @@ async function initialize() {
       `));
       await client.query(AMENITY_GUARD);
       const hasData = (await client.query("SELECT 1 FROM society LIMIT 1")).rowCount;
-      if (!hasData) {
+      if (!production && !hasData) {
         for (const table of objects.filter((item) => item.type === "table")) {
           const records = source.prepare(`SELECT * FROM "${table.name}"`).all();
           if (!records.length) continue;
@@ -78,8 +135,16 @@ async function initialize() {
           }
         }
       }
+      if (bootstrap) await bootstrapSociety(client);
+      if (bootstrapOps) await bootstrapOperator(client);
       await client.query("COMMIT");
-      console.log(hasData ? "Verified the existing JODO schema." : "Initialized the private JODO schema with demo data.");
+      if (production) {
+        console.log("Verified the resident JODO schema.");
+        if (bootstrap) console.log("Created the society and its first secretary.");
+        if (bootstrapOps) console.log("Created the JODO operations account.");
+      } else {
+        console.log(hasData ? "Verified the existing demo JODO schema." : "Initialized the private JODO schema with demo data.");
+      }
     } catch (error) {
       await client.query("ROLLBACK").catch(() => {});
       throw error;

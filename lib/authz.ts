@@ -1,4 +1,5 @@
 import { one } from "./db";
+import { isDemoMode } from "./auth-mode";
 import type { Me } from "./session";
 
 /**
@@ -44,6 +45,9 @@ export type Action =
   | { kind: "console.vendor" };
 
 export async function can(me: Me, action: Action): Promise<boolean> {
+  // The ops console also manages website leads in live mode.
+  if (action.kind !== "console.ops" && !isDemoMode()) return false;
+
   switch (action.kind) {
     case "console.ops":
       return isOps(me);

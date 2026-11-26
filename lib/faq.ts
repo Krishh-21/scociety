@@ -1,31 +1,27 @@
 /** Shared by the landing page and /help, so the answers can't drift apart. */
 export const FAQ: [string, string][] = [
   [
-    "What happens if not enough neighbours join?",
-    "The group is cancelled and nobody is charged — every payment authorisation is released. If it came close, the vendor holds the date for one 48-hour extension first. You can always roll it into next week or book solo.",
+    "Who can see our society’s information?",
+    "Only verified residents of your society. Committee tools — dues, collections, expenses and complaint assignment — are only for committee members. A guard sees the visitor log for the society they are assigned to, and nothing else.",
   ],
   [
-    "I joined first. Do I pay more than people who joined later?",
-    "No. Everyone pays the final group price, including whoever joined first. The price on the ladder only ever falls; if a neighbour leaves, the price you were shown is held.",
+    "How do residents join?",
+    "Residents sign in with their mobile number and request access to their flat. The society committee reviews the request. Each flat has one verified account.",
   ],
   [
-    "When is my money taken?",
-    "Only when the group locks — at the deadline, once the minimum has joined. Until then it's a UPI AutoPay mandate or a card hold, not a charge.",
+    "Can residents pay maintenance through JODO?",
+    "Not yet. Residents pay the society the way they do today — UPI, bank transfer, cash or cheque — and the committee records each payment against the flat’s bill. The resident then sees the bill as paid, with a receipt.",
   ],
   [
-    "Who are the vendors?",
-    "Verified local businesses: KYC, police-verified technicians and damage insurance. Each service shows its rating, jobs done and badges, and most societies pick vendors they already trust.",
+    "Will residents get SMS or WhatsApp alerts?",
+    "Not today. Visitor requests, notices, complaint updates and dues reminders appear in the app’s notification centre. There are no SMS, WhatsApp or phone push alerts yet.",
   ],
   [
-    "Can anyone see my society's groups?",
-    "No. Groups are private to verified residents of that society. Your flat number is visible only to your neighbours, and your phone number to nobody.",
+    "What does the security guard need?",
+    "A phone with a browser. The committee adds the guard’s mobile number in JODO; the guard signs in with it and lands straight on your society’s visitor log.",
   ],
   [
-    "What if the work isn't good?",
-    "You give the technician a completion code only when you're happy. After that you have a workmanship warranty (30 days for AC service) and can raise an issue from your booking — ops replies within 48 hours.",
-  ],
-  [
-    "Does the society committee have to agree?",
-    "Societies can choose to approve every group before it goes live. Either way the committee never handles cash.",
+    "How do we set up our society?",
+    "Send a setup request with your society name and a committee contact. An administrator creates your society and sets up the first committee account.",
   ],
 ];

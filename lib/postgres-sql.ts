@@ -1,4 +1,8 @@
-export const POSTGRES_SCHEMA = "jodo_demo";
+import { isDemoMode } from "./auth-mode";
+
+export function postgresSchema(demo = isDemoMode()) {
+  return demo ? "jodo_demo" : "jodo";
+}
 
 export function postgresConnection(connectionString: string) {
   const ca = process.env.DATABASE_CA_CERT;

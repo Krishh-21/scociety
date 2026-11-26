@@ -12,8 +12,7 @@ export default async function ComplaintsPage() {
   if (!me) redirect("/login");
   if (me.user.role === "guard") redirect("/society/visitors");
   if (me.user.role !== "resident" && me.user.role !== "secretary") notFound();
-  if (!me.residency) redirect("/onboarding");
-  if (me.residency.status !== "verified") notFound();
+  if (me.residency?.status !== "verified") redirect("/onboarding");
 
   const committee = me.user.role === "secretary";
   const tickets = await listComplaints(me);
@@ -62,7 +61,7 @@ export default async function ComplaintsPage() {
           ))}
         </section>
       </div>
-      <TabBar active="society" mobile={false} />
+      <TabBar active="helpdesk" mobile={false} />
     </Phone>
   );
 }

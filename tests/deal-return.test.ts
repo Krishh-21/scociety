@@ -1,7 +1,4 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const cookieJar = vi.hoisted(() => new Map<string, { value: string }>());
 vi.mock("next/headers", () => ({
@@ -11,10 +8,9 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-const dbFile = path.join(os.tmpdir(), `jodo-deal-return-${process.pid}-${Date.now()}.db`);
-process.env.JODO_DB = dbFile;
+process.env.JODO_DB = ":memory:";
 
-const { saveResidency, verifyOtp } = await import("@/app/actions");
+const { openDemoAccount, saveResidency } = await import("@/app/actions");
 
 const sharedDeal = "/deal/deal_ac_sunday";
 
@@ -25,7 +21,7 @@ function form(fields: Record<string, string>) {
 }
 
 function signIn(phone: string, next = sharedDeal) {
-  return verifyOtp({}, form({ phone, otp: "1234", next }));
+  return openDemoAccount({}, form({ phone, next }));
 }
 
 function redirectedTo(path: string) {
@@ -35,15 +31,6 @@ function redirectedTo(path: string) {
 }
 
 beforeEach(() => cookieJar.clear());
-afterAll(() => {
-  for (const file of [dbFile, `${dbFile}-wal`, `${dbFile}-shm`]) {
-    try {
-      fs.rmSync(file, { force: true });
-    } catch {
-      /* SQLite can keep the files open on Windows. */
-    }
-  }
-});
 
 describe("signing in from a shared deal", () => {
   it("takes an existing resident back to the deal", async () => {

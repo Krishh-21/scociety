@@ -153,18 +153,34 @@ export async function listFinanceBills(me: Me | null, view: "mine" | "society", 
     ORDER BY b.month DESC, b.flat`, financeToday(), residency.societyId, flat, flat, month, month, options.outstanding ? 1 : 0);
 }
 
+function verifiedDuesPayer(societyId: string, flat: string, residencyId?: string) {
+  return one<{ id: string; userId: string; name: string }>(
+    `SELECT r.id, r.userId, u.name FROM residency r JOIN user u ON u.id = r.userId
+     WHERE r.societyId = ? AND r.flat = ? AND r.status = 'verified' AND u.role IN ('resident', 'secretary')
+       AND (CAST(? AS TEXT) IS NULL OR r.id = ?)`, societyId, flat, residencyId ?? null, residencyId ?? null,
+  );
+}
+
 export async function financeBill(me: Me | null, billId: string) {
-  const { societyId, flat } = requireSocietyMember(me);
-  const permittedFlat = me?.user.role === "secretary" ? null : flat;
+  const { id: residencyId, userId, societyId, flat } = requireSocietyMember(me);
+  const canManage = me?.user.role === "secretary";
+  const permittedFlat = canManage ? null : flat;
   const bill = await one<FinanceBill>(`SELECT ${billFields()} ${billFrom}
     WHERE b.id = ? AND b.societyId = ? AND (CAST(? AS TEXT) IS NULL OR b.flat = ?)`,
   financeToday(), billId, societyId, permittedFlat, permittedFlat);
   if (!bill) return null;
+  const payer = canManage && !bill.paidOn ? await verifiedDuesPayer(societyId, bill.flat) : null;
   return {
     ...bill,
     items: await billItems(bill.id),
-    payment: await one<FinancePayment>(`SELECT id, amountPaise, method, reference, paidOn
-      FROM society_finance_payments WHERE billId = ?`, bill.id),
+    receiptRecipient: payer && { id: payer.id, name: payer.name },
+    payment: bill.paidOn ? await one<FinancePayment>(
+      `SELECT p.id, p.amountPaise, p.method, p.reference, p.paidOn
+       FROM society_finance_payments p WHERE p.billId = ? AND (? = 1 OR EXISTS (
+         SELECT 1 FROM society_finance_receipt_access a JOIN residency r ON r.id = a.residencyId AND r.userId = a.payerId
+         WHERE a.paymentId = p.id AND r.id = ? AND r.userId = ? AND r.societyId = ? AND r.flat = ? AND r.status = 'verified'
+       ))`, bill.id, canManage ? 1 : 0, residencyId, userId, societyId, flat,
+    ) : null,
   };
 }
 
@@ -176,7 +192,7 @@ async function committeeBill(societyId: string, billId: string) {
 }
 
 export async function recordDuesPayment(me: Me | null, input: {
-  billId: string; method: string; reference: string; paidOn: string;
+  billId: string; method: string; reference: string; paidOn: string; payerResidencyId?: string;
 }) {
   const { societyId, userId } = requireSocietyCommittee(me);
   if (!Object.hasOwn(paymentMethods, input.method)) throw new FinanceError("Choose a payment method.");
@@ -185,11 +201,17 @@ export async function recordDuesPayment(me: Me | null, input: {
   return inTransaction(async () => {
     const bill = await committeeBill(societyId, input.billId);
     if (bill.paidOn) throw new FinanceError("This bill is already paid.");
+    const payer = input.payerResidencyId ? await verifiedDuesPayer(societyId, bill.flat, input.payerResidencyId) : null;
+    if (input.payerResidencyId && !payer) throw new FinanceError("Choose a verified resident of this flat to share the receipt.");
     const paymentId = randomUUID();
     const result = await run(`INSERT INTO society_finance_payments (id, billId, amountPaise, method, reference, paidOn, recordedBy, recordedAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(billId) DO NOTHING`, paymentId, bill.id, bill.totalPaise, input.method, reference, paidOn,
     userId, new Date().toISOString());
     if (!result.changes) throw new FinanceError("This bill is already paid.");
+    if (payer) {
+      await run("INSERT INTO society_finance_receipt_access (paymentId, residencyId, payerId) VALUES (?, ?, ?)",
+        paymentId, payer.id, payer.userId);
+    }
     return paymentId;
   });
 }
@@ -218,7 +240,7 @@ export async function remindOutstandingDues(me: Me | null, billId?: string) {
         ? `${financeMoney(bill.totalPaise)} for flat ${flat} at ${societyName} is due ${financeDateLabel(bill.dueOn)}.`
         : `Flat ${flat} at ${societyName} has ${flatBills.length} outstanding maintenance bills totalling ${financeMoney(flatBills.reduce((sum, entry) => sum + entry.totalPaise, 0))}.`;
       await notify(recipients.map((row) => row.userId), {
-        type: "society_dues_reminder", title, body: `${body} Open Society Finance to view your dues.`,
+        type: "society_dues_reminder", societyId, title, body: `${body} Open Society Finance to view your dues.`,
       });
       for (const entry of flatBills) {
         await run("UPDATE society_finance_bills SET lastReminderOn = ? WHERE id = ?", today, entry.id);

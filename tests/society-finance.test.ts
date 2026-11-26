@@ -1,14 +1,28 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Me } from "@/lib/session";
+
+const cookieJar = vi.hoisted(() => new Map<string, { value: string }>());
+vi.mock("next/headers", () => ({ cookies: async () => ({
+  get: (name: string) => cookieJar.get(name),
+  set: (name: string, value: string) => cookieJar.set(name, { value }),
+}) }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 const dbFile = path.join(os.tmpdir(), `jodo-finance-${process.pid}-${Date.now()}.db`);
 process.env.JODO_DB = dbFile;
 
 const { getDb, one, resetAllData, run } = await import("@/lib/db");
 const { listNotifications } = await import("@/lib/notify");
+const { claimResidency, createSession, findOrCreateUser, getMe } = await import("@/lib/session");
+const { reviewMembershipRequest, revokeMembership } = await import("@/lib/society-membership");
+const { recordDuesAction } = await import("@/app/society/finance/actions");
+const { default: BillPage } = await import("@/app/society/finance/[billId]/page");
+const { default: ReceiptPage } = await import("@/app/society/finance/[billId]/receipt/page");
+const { GET: expenseReceiptRoute } = await import("@/app/society/finance/expenses/[expenseId]/receipt/route");
 const {
   addFinanceExpense, financeBill, financeExpenseReceipt, financeExpenses, financeSummary, issueMonthlyDues,
   listFinanceBills, recordDuesPayment, remindOutstandingDues, reportBankBalance, settleFinanceExpense,
@@ -28,7 +42,11 @@ const issueInput = {
   items: [{ label: "Maintenance", rupees: "1500.50" }, { label: "Water", rupees: "240.25" }],
 };
 
-beforeEach(() => resetAllData());
+beforeEach(() => {
+  resetAllData();
+  cookieJar.clear();
+});
+afterEach(() => vi.unstubAllEnvs());
 afterAll(() => {
   getDb().close();
   globalThis.__jodoDb = undefined;
@@ -65,7 +83,10 @@ describe("society finance", () => {
     const resident = (await actor("usr_rahul"));
     (await issueMonthlyDues(committee, issueInput));
     const [bill] = (await listFinanceBills(resident, "mine"));
-    const payment = { billId: bill.id, method: "bank_transfer", reference: "UTR-42", paidOn: "2026-01-15" };
+    const payment = {
+      billId: bill.id, method: "bank_transfer", reference: "UTR-42", paidOn: "2026-01-15",
+      payerResidencyId: resident.residency!.id,
+    };
     (await run("UPDATE residency SET societyId = ? WHERE userId = ?", "soc_palm_grove", "usr_n2"));
     (await run("UPDATE user SET role = 'secretary' WHERE id = ?", "usr_n2"));
     const otherCommittee = (await actor("usr_n2"));
@@ -80,6 +101,66 @@ describe("society finance", () => {
     await expect((async () => (await recordDuesPayment(committee, payment)))()).rejects.toThrow(/already paid/i);
     expect((await financeBill(resident, bill.id))?.payment).toMatchObject({ reference: "UTR-42", amountPaise: 174075 });
     expect((await financeSummary(committee.residency!.societyId)).collectedPaise).toBe(174075);
+  });
+
+  it("keeps a prior payer's receipt private after an approved new occupant moves in", async () => {
+    vi.stubEnv("JODO_AUTH_MODE", "sms");
+    const committee = await actor("usr_kulkarni");
+    const payer = await actor("usr_rahul");
+    const { id: payerResidencyId, societyId, flat } = payer.residency!;
+    await issueMonthlyDues(committee, issueInput);
+    await issueMonthlyDues(committee, { ...issueInput, month: "2026-02", dueOn: "2026-02-15" });
+    const [outstanding, paid] = await listFinanceBills(payer, "mine");
+    const payment = { method: "bank_transfer", reference: "UTR-PRIVATE", paidOn: "2026-01-15" };
+    const form = new FormData();
+    for (const [key, value] of Object.entries({ ...payment, billId: paid.id, payerResidencyId })) form.set(key, value);
+    const paidBillPageParams = { params: Promise.resolve({ billId: paid.id }), searchParams: Promise.resolve({}) };
+    await createSession(committee.user.id);
+    expect(renderToStaticMarkup(await BillPage(paidBillPageParams))).toContain("Share receipt with Rahul Mehta");
+    await expect(recordDuesAction({}, form)).resolves.toMatchObject({ ok: expect.any(String) });
+
+    await createSession(payer.user.id);
+    const authorizedReceipt = (await financeBill(await getMe(), paid.id))?.payment;
+    expect(authorizedReceipt).toMatchObject({ id: expect.any(String), reference: "UTR-PRIVATE" });
+    expect(renderToStaticMarkup(await ReceiptPage(paidBillPageParams))).toContain("UTR-PRIVATE");
+    const successor = await findOrCreateUser("9876500196", "New occupant");
+    const request = await claimResidency({ userId: successor.id, name: successor.name, societyId, flat, type: "tenant" });
+    expect(request.status).toBe("pending");
+    await revokeMembership(committee, payerResidencyId);
+    expect(await getMe()).toBeNull();
+    await reviewMembershipRequest(committee, request.id, "approve");
+    await createSession(successor.id);
+    const resident = await getMe();
+
+    expect((await listFinanceBills(resident, "mine")).map(({ id }) => id)).toEqual([outstanding.id, paid.id]);
+    expect((await listFinanceBills(resident, "mine", { outstanding: true })).map(({ id }) => id)).toEqual([outstanding.id]);
+    await expect(ReceiptPage(paidBillPageParams)).rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" });
+    const newOccupantBill = renderToStaticMarkup(await BillPage(paidBillPageParams));
+    expect(newOccupantBill).toContain("Paid");
+    expect(newOccupantBill).not.toContain(`/${paid.id}/receipt`);
+    expect(await financeBill(resident, paid.id)).toMatchObject({ flat, totalPaise: 174075, paidOn: "2026-01-15", payment: null });
+    expect((await financeBill(payer, paid.id))?.payment).toBeFalsy();
+    expect((await financeBill(committee, paid.id))?.payment).toEqual(authorizedReceipt);
+
+    const latePayment = { ...payment, billId: outstanding.id, reference: "UTR-LATE" };
+    await expect(recordDuesPayment(committee, { ...latePayment, payerResidencyId })).rejects.toThrow(/verified.*flat/i);
+    expect(await financeBill(resident, outstanding.id)).toMatchObject({ paidOn: null, payment: null });
+    await recordDuesPayment(committee, latePayment);
+    expect(await financeBill(resident, outstanding.id)).toMatchObject({ paidOn: "2026-01-15", payment: null });
+    expect((await financeBill(committee, outstanding.id))?.payment).toMatchObject({ reference: "UTR-LATE" });
+  });
+
+  it("keeps a legacy receipt available to the committee without sharing it with the verified flat", async () => {
+    const committee = await actor("usr_kulkarni");
+    const resident = await actor("usr_rahul");
+    await issueMonthlyDues(committee, issueInput);
+    const [bill] = await listFinanceBills(resident, "mine");
+    await run(`INSERT INTO society_finance_payments (id, billId, amountPaise, method, reference, paidOn, recordedBy, recordedAt)
+      VALUES ('legacy-receipt', ?, 174075, 'cash', 'LEGACY-PRIVATE', '2026-01-15', ?, '2026-01-15T09:30:00.000Z')`,
+    bill.id, committee.user.id);
+
+    expect(await financeBill(resident, bill.id)).toMatchObject({ paidOn: "2026-01-15", payment: null });
+    expect((await financeBill(committee, bill.id))?.payment).toMatchObject({ id: "legacy-receipt", reference: "LEGACY-PRIVATE" });
   });
 
   it("limits reminders to outstanding flats and suppresses repeated reminders on the same day", async () => {
@@ -138,6 +219,16 @@ describe("society finance", () => {
     expect((await financeExpenseReceipt(committee, expenseId))?.contentType).toBe("image/png");
     expect(Buffer.from((await financeExpenseReceipt(committee, expenseId))!.bytes)).toEqual(png);
     await expect((async () => (await financeExpenseReceipt((await actor("usr_rahul")), expenseId)))()).rejects.toThrow();
+    const receiptRoute = () => expenseReceiptRoute(new Request(`http://localhost/society/finance/expenses/${expenseId}/receipt`), {
+      params: Promise.resolve({ expenseId }),
+    });
+    await createSession(committee.user.id);
+    const image = await receiptRoute();
+    expect(image.status).toBe(200);
+    expect(image.headers.get("cache-control")).toBe("private, no-store");
+    expect(Buffer.from(await image.arrayBuffer())).toEqual(png);
+    await createSession("usr_rahul");
+    expect((await receiptRoute()).status).toBe(404);
     (await run("UPDATE residency SET societyId = ? WHERE userId = ?", "soc_palm_grove", committee.user.id));
     expect((await financeExpenseReceipt((await actor(committee.user.id)), expenseId))).toBeNull();
   });

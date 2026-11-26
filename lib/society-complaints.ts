@@ -57,6 +57,19 @@ export async function complaintSummary(societyId: string) {
   ))!;
 }
 
+export async function complaintPreview(me: Me | null) {
+  const { societyId, userId } = requireSocietyMember(me);
+  const owner = me?.user.role === "secretary" ? null : userId;
+  const recent = await all<Pick<ComplaintRow, "id" | "flat" | "title" | "status" | "category"> & { openCount: number }>(
+    `SELECT id, flat, title, status, category, COUNT(*) OVER () AS openCount
+     FROM society_complaint
+     WHERE societyId = ? AND status <> 'resolved' AND (CAST(? AS TEXT) IS NULL OR userId = ?)
+     ORDER BY updatedAt DESC, id LIMIT 2`,
+    societyId, owner, owner,
+  );
+  return { count: recent[0]?.openCount ?? 0, recent };
+}
+
 export async function createComplaint(me: Me | null, category: string, title: string, detail: string) {
   const { societyId, userId, flat } = requireSocietyMember(me);
   const subject = title.trim();
@@ -83,6 +96,7 @@ export async function createComplaint(me: Me | null, category: string, title: st
       societyId, userId,
     );
     await notify(committee.map((resident) => resident.userId), {
+      societyId,
       type: "society_complaint", title: "A new society complaint", body: "Open the complaint queue to assign it.",
     });
     return complaintId;
@@ -117,6 +131,7 @@ export async function updateComplaint(me: Me | null, complaintId: string, status
       complaintId, userId, status, update, now,
     );
     await notify([complaint.userId], {
+      societyId,
       type: "society_complaint", title: "Your society complaint was updated", body: "Open Complaints to see the latest status.",
     });
   });

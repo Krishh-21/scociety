@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { isDemoMode } from "@/lib/auth-mode";
 import { jobsForDeal, listVendors, revisitsForVendor, vendorDeals } from "@/lib/deals";
 import { commission, formatDate, rupees } from "@/lib/pricing";
 import { formatRevisitDate, isRevisitDue, revisitToday } from "@/lib/revisits";
@@ -30,6 +31,7 @@ export default async function VendorPage({
 }: {
   searchParams: Promise<{ vendor?: string | string[] }>;
 }) {
+  if (!isDemoMode()) notFound();
   const me = await getMe();
   if (!me) redirect("/login");
   if (!(await can(me, { kind: "console.vendor" }))) {
@@ -294,7 +296,7 @@ export default async function VendorPage({
                   <th className="font-semibold">Flats</th>
                   <th className="font-semibold">Gross</th>
                   <th className="font-semibold">Commission</th>
-                  <th className="font-semibold">Net (T+1)</th>
+                  <th className="font-semibold">Net estimate</th>
                 </tr>
               </thead>
               <tbody>

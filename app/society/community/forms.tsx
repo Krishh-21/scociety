@@ -1,9 +1,8 @@
 "use client";
 
-import { useActionState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { ActionState } from "@/app/actions";
-
-const empty: ActionState = {};
+import { useSocietyForm } from "../useSocietyForm";
 
 export function CommunityForm({ action, children, submit, quiet = false }: {
   action: (state: ActionState, form: FormData) => Promise<ActionState>;
@@ -11,9 +10,9 @@ export function CommunityForm({ action, children, submit, quiet = false }: {
   submit: string;
   quiet?: boolean;
 }) {
-  const [state, formAction, pending] = useActionState(action, empty);
+  const { state, pending, formProps } = useSocietyForm(action);
   return (
-    <form action={formAction} className="flex min-w-0 flex-col items-start gap-2.5">
+    <form {...formProps} className="flex min-w-0 flex-col items-start gap-2.5">
       {children}
       <button type="submit" disabled={pending} className={`btn ${quiet ? "btn-quiet" : "btn-primary"}`}>
         {pending ? "Saving…" : submit}

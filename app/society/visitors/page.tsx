@@ -8,11 +8,11 @@ import { getMe, type Me } from "@/lib/session";
 import { translator } from "@/lib/i18n";
 import { requireSocietyGuard, requireSocietyMember, SocietyAccessError } from "@/lib/society-access";
 import {
-  committeeGateVisits, gateDirectory, gateKindLabels, gateSummary, guardVisits, residentPasses, residentVisits,
+  committeeGateVisits, GATE_TICKET_WINDOW_MINUTES, gateDirectory, gateKindLabels, gateSummary, guardVisits, residentPasses, residentVisits,
   type GateStatus, type GateVisit,
 } from "@/lib/society-gate";
 import {
-  CreateGuestPassForm, LogVisitForm, RedeemGuestPassForm, VisitDecisionForm, VisitMovementForm,
+  CancelVisitForm, CreateGuestPassForm, LogVisitForm, RedeemGuestPassForm, RevokeGuestPassForm, VisitDecisionForm, VisitMovementForm,
 } from "./VisitorForms";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +27,9 @@ const visitStatus: Record<GateStatus, { label: string; style: string }> = {
   denied: { label: "Denied", style: "bg-danger-50 text-danger-600" },
   checked_in: { label: "Checked in", style: "bg-save-50 text-save-700" },
   checked_out: { label: "Checked out", style: "bg-canvas-alt text-ink-700" },
-  expired: { label: "Pass expired", style: "bg-canvas-alt text-ink-700" },
+  cancelled: { label: "Cancelled", style: "bg-canvas-alt text-ink-700" },
+  expired: { label: "Expired", style: "bg-canvas-alt text-ink-700" },
+  host_unavailable: { label: "Host unavailable", style: "bg-canvas-alt text-ink-700" },
 };
 
 const mainClass = "flex flex-1 flex-col gap-5 px-4 py-4 pb-7 sm:px-6 lg:px-8";
@@ -57,13 +59,14 @@ function VisitCard({ id, visit, alert = false, children }: { id: string; visit: 
             {gateKindLabels[visit.kind]} · Flat {visit.flat}{visit.passId ? " · Guest pass" : ""}
           </p>
         </div>
-        <span className={`pill shrink-0 ${status.style}`}>{status.label}</span>
+        <span className={`pill shrink-0 ${status.style}`}>{visit.status === "expired" && visit.passId ? "Pass expired" : status.label}</span>
       </div>
       <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-ink-500">
         <Stamp label="Logged" value={visit.createdAt} />
         {visit.decidedAt && <Stamp label={visit.status === "denied" ? "Denied" : "Approved"} value={visit.decidedAt} />}
         {visit.checkedInAt && <Stamp label="In" value={visit.checkedInAt} />}
         {visit.checkedOutAt && <Stamp label="Out" value={visit.checkedOutAt} />}
+        {visit.cancelledAt && <Stamp label="Cancelled" value={visit.cancelledAt} />}
       </div>
       {children}
     </li>
@@ -71,10 +74,11 @@ function VisitCard({ id, visit, alert = false, children }: { id: string; visit: 
 }
 
 function VisitList({
-  id, title, visits, empty, live, action, heading: Heading = "h2", cardIdPrefix = "visit", alertPending = false,
+  id, title, description, visits, empty, live, action, heading: Heading = "h2", cardIdPrefix = "visit", alertPending = false,
 }: {
   id?: string;
   title: string;
+  description?: string;
   visits: GateVisit[];
   empty?: string;
   live?: boolean;
@@ -94,6 +98,7 @@ function VisitList({
         </Heading>
         {live && <AutoRefresh intervalMs={6_000} />}
       </div>
+      {description && <p className="text-[13px] text-ink-500">{description}</p>}
       {visits.length ? (
         <ul className="space-y-2.5">
           {visits.map((visit) => (
@@ -124,13 +129,14 @@ function SignOutButton() {
 
 async function renderGuardDesk(me: Me) {
   const { societyId, societyName } = await requireSocietyGuard(me);
+  const now = new Date();
   const [flats, visits, { visitorsToday }] = await Promise.all([
-    gateDirectory(me), guardVisits(me), gateSummary(societyId),
+    gateDirectory(me), guardVisits(me, now), gateSummary(societyId, now),
   ]);
   const inside = visits.filter(({ status }) => status === "checked_in");
   const approved = visits.filter(({ status }) => status === "approved");
   const pending = visits.filter(({ status }) => status === "pending");
-  const history = visits.filter(({ status }) => status === "checked_out" || status === "denied" || status === "expired");
+  const history = visits.filter(({ status }) => status !== "checked_in" && status !== "approved" && status !== "pending");
 
   return (
     <Phone wide>
@@ -152,6 +158,13 @@ async function renderGuardDesk(me: Me) {
 
         <section className="card space-y-3 p-4 sm:p-5">
           <h2 className="jd-section-title">Log an arrival</h2>
+          <p className="text-[13px] text-ink-500">
+            Entry requests go to the resident’s JODO inbox. If the resident does not respond or JODO is offline,
+            use the society’s phone or intercom procedure.
+          </p>
+          <p className="text-[13px] text-ink-500">
+            Each request allows {GATE_TICKET_WINDOW_MINUTES} minutes for a response. Once approved, there are {GATE_TICKET_WINDOW_MINUTES} minutes to check in.
+          </p>
           <LogVisitForm flats={flats} />
         </section>
         <section className="card space-y-3 p-4 sm:p-5">
@@ -168,9 +181,17 @@ async function renderGuardDesk(me: Me) {
           </div>
           <VisitList
             title="Ready to check in" heading="h3" visits={approved}
-            action={(visit) => <VisitMovementForm visitId={visit.id} direction="in" />}
+            action={(visit) => (
+              <div className="flex flex-wrap items-start gap-x-2">
+                <VisitMovementForm visitId={visit.id} direction="in" />
+                <CancelVisitForm visitId={visit.id} />
+              </div>
+            )}
           />
-          <VisitList title="Waiting for resident" heading="h3" visits={pending} />
+          <VisitList
+            title="Waiting for resident" heading="h3" visits={pending}
+            action={(visit) => <CancelVisitForm visitId={visit.id} />}
+          />
           <VisitList
             title="Checked in" heading="h3" visits={inside}
             action={(visit) => <VisitMovementForm visitId={visit.id} direction="out" />}
@@ -188,54 +209,63 @@ async function renderGuardDesk(me: Me) {
 
 async function renderResidentVisitors(me: Me) {
   const residency = requireSocietyMember(me);
+  const now = new Date();
   const [visits, passes, committeeActivity, unread] = await Promise.all([
-    residentVisits(me),
+    residentVisits(me, now),
     residentPasses(me),
-    me.user.role === "secretary" ? committeeGateVisits(me) : null,
+    me.user.role === "secretary" ? committeeGateVisits(me, now) : null,
     unreadCount(me.user.id),
   ]);
   const pending = visits.filter(({ status }) => status === "pending");
   const history = visits.filter(({ status }) => status !== "pending");
-  const now = new Date().toISOString();
+  const at = now.toISOString();
+  const passActivity = passes.map((pass) => ({
+    ...pass,
+    status: pass.usedAt ? "Used" : pass.revokedAt ? "Revoked" : pass.expiresAt <= at ? "Expired" : "Active",
+  }));
 
   return (
     <Phone>
       <AppHeader
-        title="Visitors" subtitle={`${residency.societyName} · ${residency.flat}`}
-        back={{ href: "/society", label: "Back to society" }} right={<NotificationBell unread={unread} />}
+        brand title="Visitors" subtitle={`${residency.societyName} · Flat ${residency.flat}`}
+        right={<NotificationBell unread={unread} />}
       />
       <main className={mainClass}>
         <VisitList
           id="gate-entry-requests" title="Entry requests" visits={pending} empty="New requests from the gate will appear here." live
+          description={`Each request expires after ${GATE_TICKET_WINDOW_MINUTES} minutes. Once approved, the visitor has ${GATE_TICKET_WINDOW_MINUTES} minutes to check in.`}
           action={(visit) => <VisitDecisionForm visitId={visit.id} />} alertPending
         />
-        <section className="card space-y-3 p-4 sm:p-5">
+        <section id="invite-guest" tabIndex={-1} aria-labelledby="invite-guest-title" className="card space-y-3 p-4 sm:p-5 scroll-mt-28">
           <div className="flex items-start gap-3">
             <span aria-hidden="true" className="w-10 h-10 shrink-0 rounded-xl bg-brand-50 text-brand-700 grid place-items-center">
-              <Icon name="plus" size={18} />
+              <Icon name="key" size={18} />
             </span>
             <div>
-              <h2 className="jd-section-title">Invite a guest</h2>
+              <h2 id="invite-guest-title" className="jd-section-title">Invite a guest</h2>
               <p className="mt-1 text-[13px] text-ink-500">Create a pass for one guest to use at the gate within 24 hours.</p>
             </div>
           </div>
-          <CreateGuestPassForm />
+          <CreateGuestPassForm activePassIds={passActivity.filter(({ status }) => status === "Active").map(({ id }) => id)} />
         </section>
-        {passes.length > 0 && (
+        {passActivity.length > 0 && (
           <section className="card p-4 sm:p-5">
             <h2 className="jd-section-title">Guest passes</h2>
             <ul className="mt-2 divide-y divide-line">
-              {passes.map((pass) => {
-                const status = pass.usedAt ? "Used" : pass.expiresAt <= now ? "Expired" : "Active";
+              {passActivity.map((pass) => {
+                const { status } = pass;
                 return (
-                  <li key={pass.id} className="flex items-center justify-between gap-3 py-2.5 last:pb-0">
-                    <div className="min-w-0 break-words">
-                      <p className="text-sm font-bold">{pass.guestName}</p>
-                      <p className="text-[12px] text-ink-500">
-                        <Stamp label={pass.usedAt ? "Used" : "Expires"} value={pass.usedAt ?? pass.expiresAt} />
-                      </p>
+                  <li key={pass.id} className="py-2.5 last:pb-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 break-words">
+                        <p className="text-sm font-bold">{pass.guestName}</p>
+                        <p className="text-[12px] text-ink-500">
+                          <Stamp label={status === "Active" ? "Expires" : status} value={pass.usedAt ?? pass.revokedAt ?? pass.expiresAt} />
+                        </p>
+                      </div>
+                      <span className={`pill ${status === "Active" ? "bg-save-50 text-save-700" : "bg-canvas-alt text-ink-700"}`}>{status}</span>
                     </div>
-                    <span className={`pill ${status === "Active" ? "bg-save-50 text-save-700" : "bg-canvas-alt text-ink-700"}`}>{status}</span>
+                    {status === "Active" && <RevokeGuestPassForm passId={pass.id} />}
                   </li>
                 );
               })}
@@ -247,7 +277,7 @@ async function renderResidentVisitors(me: Me) {
           <VisitList id="society-gate-activity" title="Society gate activity" visits={committeeActivity} empty="The gate has not logged any visits yet." cardIdPrefix="committee-visit" />
         )}
       </main>
-      <TabBar active="society" t={translator(me.user.lang)} />
+      <TabBar active="visitors" t={translator(me.user.lang)} context={{ society: residency.societyName, flat: residency.flat }} />
     </Phone>
   );
 }

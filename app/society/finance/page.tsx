@@ -110,7 +110,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
           ))}
         </section>
       </main>
-      <TabBar active="society" />
+      <TabBar active="finance" />
     </Phone>
   );
 }

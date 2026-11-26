@@ -62,7 +62,7 @@ export default async function ExpensesPage() {
           ))}
         </section>
       </main>
-      <TabBar active="society" />
+      <TabBar active="finance" />
     </Phone>
   );
 }

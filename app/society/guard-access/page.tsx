@@ -17,7 +17,7 @@ export default async function GuardAccessPage() {
       <div className="px-4 py-4 grid gap-3">
         <section className="card p-4">
           <h2 className="font-extrabold">Add a guard</h2>
-          <p className="mt-1 text-sm text-ink-500">The guard signs in with this number to open your society’s visitor log.</p>
+          <p className="mt-1 text-sm text-ink-500">After adding the guard, ask them to sign in with this number to open your society’s visitor log.</p>
           <AddGuardForm />
         </section>
         <section className="grid gap-2">
